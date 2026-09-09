@@ -9,7 +9,8 @@ import {
   SatelliteCategory,
   OrbitType,
   TacticalAlert,
-  SimulationClockState
+  SimulationClockState,
+  SatelliteSortBy
 } from '../types/satellite'
 import { INITIAL_SATELLITES, INITIAL_ALERTS, CAMERA_PRESETS } from '../services/satelliteData'
 import { updateSatelliteTelemetry } from '../services/satelliteService'
@@ -23,7 +24,7 @@ const satellites = ref<Satellite[]>(JSON.parse(JSON.stringify(INITIAL_SATELLITES
 /**
  * 当前选中的卫星 ID (可为空)
  */
-const selectedSatelliteId = ref<string>('SAT-GF06')
+const selectedSatelliteId = ref<string>('SAT-USA-290')
 
 /**
  * 是否将三维相机锁定并实时跟随当前选中的卫星
@@ -60,9 +61,34 @@ const categoryFilter = ref<SatelliteCategory | 'ALL'>('ALL')
 const orbitTypeFilter = ref<OrbitType | 'ALL'>('ALL')
 
 /**
+ * 卫星所属星座/系列过滤条件 ('ALL' 表示全部)
+ */
+const seriesFilter = ref<string>('ALL')
+
+/**
  * 卫星名称或代号搜索关键词
  */
 const searchKeyword = ref<string>('')
+
+/**
+ * 最低威胁度筛选阈值 (0 - 100)
+ */
+const minThreatScore = ref<number>(0)
+
+/**
+ * 最大链路传输延迟筛选阈值 (ms)
+ */
+const maxLinkLatency = ref<number>(1000)
+
+/**
+ * 最低有效覆盖率筛选阈值 (0 - 100)
+ */
+const minCoverageRate = ref<number>(0)
+
+/**
+ * 列表排序维度
+ */
+const sortBy = ref<SatelliteSortBy>('DEFAULT')
 
 /**
  * 战备等级状态 (DEFCON 1 到 5)
@@ -101,19 +127,56 @@ export function useSatelliteState() {
   })
 
   /**
-   * 根据分类、轨道类型与搜索词过滤后的卫星列表
+   * 根据分类、轨道类型、卫星系列、威胁度、链路时延、覆盖率以及搜索词过滤与排序后的卫星列表
    */
   const filteredSatellites = computed<Satellite[]>(() => {
-    return satellites.value.filter((sat) => {
+    const list = satellites.value.filter((sat) => {
       const matchCategory =
         categoryFilter.value === 'ALL' || sat.category === categoryFilter.value
       const matchOrbit =
         orbitTypeFilter.value === 'ALL' || sat.orbitType === orbitTypeFilter.value
+      const matchSeries =
+        seriesFilter.value === 'ALL' || sat.series === seriesFilter.value
       const matchKeyword =
         !searchKeyword.value.trim() ||
         sat.name.toLowerCase().includes(searchKeyword.value.toLowerCase()) ||
-        sat.id.toLowerCase().includes(searchKeyword.value.toLowerCase())
-      return matchCategory && matchOrbit && matchKeyword
+        sat.id.toLowerCase().includes(searchKeyword.value.toLowerCase()) ||
+        (sat.series && sat.series.toLowerCase().includes(searchKeyword.value.toLowerCase()))
+      const matchThreat = (sat.threatScore ?? 0) >= minThreatScore.value
+      const matchLatency = (sat.linkLatencyMs ?? 0) <= maxLinkLatency.value
+      const matchCoverage =
+        minCoverageRate.value === 0 || ((sat.coverageRate ?? 0) >= minCoverageRate.value)
+
+      return (
+        matchCategory &&
+        matchOrbit &&
+        matchSeries &&
+        matchKeyword &&
+        matchThreat &&
+        matchLatency &&
+        matchCoverage
+      )
+    })
+
+    // 根据选中的排序维度进行排序
+    return list.slice().sort((a, b) => {
+      switch (sortBy.value) {
+        case 'THREAT_DESC':
+          return (b.threatScore ?? 0) - (a.threatScore ?? 0)
+        case 'THREAT_ASC':
+          return (a.threatScore ?? 0) - (b.threatScore ?? 0)
+        case 'LATENCY_ASC':
+          return (a.linkLatencyMs ?? 0) - (b.linkLatencyMs ?? 0)
+        case 'LATENCY_DESC':
+          return (b.linkLatencyMs ?? 0) - (a.linkLatencyMs ?? 0)
+        case 'COVERAGE_DESC':
+          return (b.coverageRate ?? 0) - (a.coverageRate ?? 0)
+        case 'COVERAGE_ASC':
+          return (a.coverageRate ?? 0) - (b.coverageRate ?? 0)
+        case 'DEFAULT':
+        default:
+          return 0
+      }
     })
   })
 
@@ -249,7 +312,12 @@ export function useSatelliteState() {
     elapsedSimulationSeconds,
     categoryFilter,
     orbitTypeFilter,
+    seriesFilter,
     searchKeyword,
+    minThreatScore,
+    maxLinkLatency,
+    minCoverageRate,
+    sortBy,
     defconLevel,
     cursorGeoPosition,
     cameraAltitude,

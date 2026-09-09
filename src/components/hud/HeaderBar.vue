@@ -16,12 +16,19 @@ import {
   Target,
   Crosshair,
   Layers,
-  Plus
+  Plus,
+  Zap
 } from 'lucide-vue-next'
 import { useSatelliteState } from '../../composables/useSatelliteState'
 import { useBattlefieldState } from '../../composables/useBattlefieldState'
 import { useTacticalAssetsState } from '../../composables/useTacticalAssetsState'
 import { useRightPanelState } from '../../composables/useRightPanelState'
+import { useCombatPlanState } from '../../composables/useCombatPlanState'
+
+/**
+ * 引入作战计划决策向导控制
+ */
+const { openCombatPlanModal } = useCombatPlanState()
 
 /**
  * 引入态势状态数据与控制操作
@@ -225,20 +232,33 @@ onUnmounted(() => {
       <div>
         <div class="flex items-center gap-2">
           <h1 class="font-mono text-sm sm:text-base font-black tracking-wider text-tactical-text">
-            卫星态势分析系统
+            空间态势感知与反卫作战系统
           </h1>
           <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-tactical-cyan/20 border border-tactical-cyan/60 text-tactical-cyan hidden md:inline">
-            v2.5 TAC
+            战术版
           </span>
         </div>
-        <p class="font-mono text-[9px] text-tactical-muted tracking-widest uppercase hidden sm:block">
-          Satellite Situation Analysis & Mission Command System
+        <p class="font-mono text-[9px] text-tactical-muted tracking-widest hidden sm:block">
+          天基攻防对抗与空间作战智能推荐指挥平台
         </p>
       </div>
     </div>
 
     <!-- 中间核心区：直接添加任务、战场、武器与抽屉入口快捷动作按钮组 (高度突出醒目) -->
     <div class="flex items-center gap-2">
+      <!-- 🟡 核心首要按钮：【作战计划】向导 (极显眼琥珀金+电光青) -->
+      <button
+        @click="openCombatPlanModal"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded font-mono text-xs font-black bg-gradient-to-r from-amber-500/25 to-yellow-500/20 hover:from-amber-500/40 hover:to-yellow-500/35 border border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)] transition-all hover:scale-105 active:scale-95 cursor-pointer"
+        title="启动反卫打击作战计划推演决策向导 (包含威胁度、链路时延、覆盖率、可打击度、甘特图与方案生成)"
+      >
+        <Zap class="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+        <span>作战计划</span>
+        <span class="px-1 py-0.2 rounded text-[9px] bg-amber-500/30 text-amber-200 border border-amber-400/40 hidden sm:inline">
+          向导
+        </span>
+      </button>
+
       <!-- 🔴 核心显眼按钮：【+ 添加任务】 -->
       <button
         @click="handleOpenCreateMission"

@@ -301,14 +301,14 @@ function handleOpenCreateModal(): void {
 <template>
   <div
     v-if="isAssetDrawerOpen"
-    class="fixed top-16 right-3 z-30 w-[520px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-120px)] bg-[#0c1322]/95 border border-cyan-500/40 rounded-lg backdrop-blur-md shadow-tactical-panel flex flex-col font-mono text-slate-200 select-none overflow-hidden"
+    class="fixed top-16 right-3 z-30 w-[380px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-120px)] bg-[#0c1322]/95 border border-cyan-500/40 rounded-lg backdrop-blur-md shadow-tactical-panel flex flex-col font-mono text-slate-200 select-none overflow-hidden"
   >
     <!-- 顶部抽屉标题栏 -->
     <div class="px-4 py-3 border-b border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 via-transparent to-transparent flex items-center justify-between">
       <div class="flex items-center gap-2">
         <Crosshair class="w-4 h-4 text-cyan-400" />
         <span class="text-sm font-bold tracking-wider text-cyan-300">
-          武器装备与天基数据链路态势 [TACTICAL ASSETS]
+          武器装备与天基数据链路态势
         </span>
       </div>
       <button
@@ -493,7 +493,7 @@ function handleOpenCreateModal(): void {
 
           <!-- 说明与操作按钮条 -->
           <div class="text-[10px] text-slate-400 border-t border-cyan-950 pt-2 flex items-center justify-between">
-            <div class="truncate max-w-[280px]" :title="wpn.description">
+            <div class="flex-1 min-w-0 truncate mr-2" :title="wpn.description">
               {{ wpn.description }}
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -578,7 +578,7 @@ function handleOpenCreateModal(): void {
 
           <!-- 操作条 -->
           <div class="text-[10px] text-slate-400 border-t border-cyan-950 pt-2 flex items-center justify-between">
-            <div class="truncate max-w-[280px]" :title="gs.description">
+            <div class="flex-1 min-w-0 truncate mr-2" :title="gs.description">
               {{ gs.description }}
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -650,7 +650,7 @@ function handleOpenCreateModal(): void {
 
           <!-- 操作条 -->
           <div class="text-[10px] text-slate-400 border-t border-cyan-950 pt-2 flex items-center justify-between">
-            <div class="truncate max-w-[280px]" :title="dc.description">
+            <div class="flex-1 min-w-0 truncate mr-2" :title="dc.description">
               {{ dc.description }}
             </div>
             <div class="flex items-center gap-2 shrink-0">

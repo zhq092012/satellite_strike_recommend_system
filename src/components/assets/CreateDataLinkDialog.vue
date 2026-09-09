@@ -64,8 +64,8 @@ const errorMessage = ref<string>('')
 const form = reactive({
   name: '',
   topologyType: DataLinkTopologyType.DIRECT,
-  sourceSatelliteId: satellites.value[0]?.id || 'SAT-GF06',
-  relaySatelliteId: relaySatellites.value[0]?.id || 'SAT-TDRS',
+  sourceSatelliteId: satellites.value[0]?.id || 'SAT-USA-290',
+  relaySatelliteId: relaySatellites.value[0]?.id || 'SAT-TDRS-13',
   groundStationId: groundStations.value[0]?.id || '',
   dataCenterId: dataCenters.value[0]?.id || '',
   dataRateMbps: 1200,
@@ -151,7 +151,7 @@ function handleClose(): void {
         <div class="flex items-center gap-2.5">
           <Share2 class="w-4 h-4 text-purple-400 animate-pulse" />
           <span class="text-sm font-bold tracking-wider text-purple-300">
-            组建天基立体空间数据链路 [SPACE-GROUND DATA LINK CREATION]
+            组建天基立体空间数据链路
           </span>
         </div>
         <button

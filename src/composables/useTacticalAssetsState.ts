@@ -20,7 +20,7 @@ import { TargetSatelliteType } from '../types/battlefield'
 /**
  * LocalStorage 本地资产持久化存储键名
  */
-const TACTICAL_ASSETS_STORAGE_KEY = 'TAC_SATELLITE_ASSETS_V2'
+const TACTICAL_ASSETS_STORAGE_KEY = 'TAC_SATELLITE_ASSETS_V3'
 
 /**
  * 预置真实感初始武器装备数据
@@ -239,48 +239,75 @@ const DEFAULT_DATA_CENTERS: DataCenter[] = [
 ]
 
 /**
- * 预置真实感初始多跳空间数据链路
+ * 预置真实感初始多跳空间数据链路 (基于美军目标卫星与基地节点)
  */
 const DEFAULT_DATA_LINKS: DataLink[] = [
   {
     id: 'DL-01',
-    name: '高分六号直连下行数传全链路',
+    name: 'WorldView-3 商业高分光学直连关岛下传链路',
     topologyType: DataLinkTopologyType.DIRECT,
-    sourceSatelliteId: 'SAT-GF06',
+    sourceSatelliteId: 'SAT-WORLDVIEW-3',
     groundStationId: 'GS-GUAM-ANDERSEN',
     dataCenterId: 'DC-JIOC-HAWAII',
     status: DataLinkStatus.ACTIVE,
     dataRateMbps: 1200,
     latencyMs: 120,
-    description: '卫星对地 X 频段直接下传高分辨率光学图像至关岛地面站，随后通过关岛-夏威夷国防海底光缆实时回传情报中心。',
+    description: 'WorldView-3 高分光学侦察卫星将亚米级图像直传关岛地面站，随后通过太平洋国防海底光缆回传夏威夷美军印太司令部联合情报中心。',
     createdAt: new Date().toISOString()
   },
   {
     id: 'DL-02',
-    name: '尖兵预警星间中继高速预警链路',
+    name: '锁眼KH-11经TDRS-13中继至松树谷战略情报链路',
     topologyType: DataLinkTopologyType.RELAY,
-    sourceSatelliteId: 'SAT-JB08',
-    relaySatelliteId: 'SAT-TL02',
+    sourceSatelliteId: 'SAT-USA-290',
+    relaySatelliteId: 'SAT-TDRS-13',
     groundStationId: 'GS-PINE-GAP',
     dataCenterId: 'DC-SCHRIEVER-AFB',
     status: DataLinkStatus.ACTIVE,
     dataRateMbps: 850,
     latencyMs: 240,
-    description: '尖兵预警卫星通过 Ka 频段星间链路将导弹红外羽烟数据上传天链二号中继星，再由中继星对地下传松树谷地面站直达太空军指挥中枢。',
+    description: '锁眼高价值战略侦察星通过 Ka 频段星间链路将涉密光学情报发送给 TDRS-13 中继星，再由中继星对地下传松树谷地面站直达美太空军指挥中枢。',
     createdAt: new Date(Date.now() - 1800000).toISOString()
   },
   {
     id: 'DL-03',
-    name: '遥感三十号第一岛链电子侦察下传链路 (已受压制)',
+    name: '星链战术节点过境第一岛链直达冲绳边缘算力链路 (已受压制)',
     topologyType: DataLinkTopologyType.DIRECT,
-    sourceSatelliteId: 'SAT-YG30',
+    sourceSatelliteId: 'SAT-STARLINK-30128',
     groundStationId: 'GS-MISAWA-JAPAN',
     dataCenterId: 'DC-CAMP-COURTNEY',
     status: DataLinkStatus.JAMMED,
     dataRateMbps: 45,
     latencyMs: 890,
-    description: '下行载波遭到我方华南大功率电子干扰阵列强噪声压制，误码率达 85%，有效数传已实质中断。',
+    description: '星链战术节点下行载波遭到我方华南大功率电子干扰阵列强噪声压制，误码率达 85%，有效数传已实质中断。',
     createdAt: new Date(Date.now() - 3600000).toISOString()
+  },
+  {
+    id: 'DL-04',
+    name: '星盾军用低轨加密情报直传关岛中心链路',
+    topologyType: DataLinkTopologyType.DIRECT,
+    sourceSatelliteId: 'SAT-STARSHIELD-01',
+    groundStationId: 'GS-GUAM-ANDERSEN',
+    dataCenterId: 'DC-JIOC-HAWAII',
+    status: DataLinkStatus.ACTIVE,
+    dataRateMbps: 1800,
+    latencyMs: 95,
+    description: 'SpaceX 星盾军用低轨星座为美军印太作战前哨提供抗干扰加密直连情报分发与实时火力打击参数引导。',
+    createdAt: new Date(Date.now() - 5400000).toISOString()
+  },
+  {
+    id: 'DL-05',
+    name: 'USA-326 秘密雷达侦察星经TDRS中继至施里弗战略链路',
+    topologyType: DataLinkTopologyType.RELAY,
+    sourceSatelliteId: 'SAT-USA-326',
+    relaySatelliteId: 'SAT-TDRS-13',
+    groundStationId: 'GS-PINE-GAP',
+    dataCenterId: 'DC-SCHRIEVER-AFB',
+    status: DataLinkStatus.ACTIVE,
+    dataRateMbps: 920,
+    latencyMs: 210,
+    description: 'FIA-Radar 秘密雷达卫星通过 Ka 频段中继链路向美本土作战中枢回传高分辨率合成孔径雷达 (SAR) 微波穿透成像数据。',
+    createdAt: new Date(Date.now() - 7200000).toISOString()
   }
 ]
 
@@ -302,7 +329,14 @@ function loadInitialAssetsFromStorage(): {
       const wpns = Array.isArray(parsed.weapons) && parsed.weapons.length > 0 ? parsed.weapons : DEFAULT_WEAPONS
       const gs = Array.isArray(parsed.groundStations) && parsed.groundStations.length > 0 ? parsed.groundStations : DEFAULT_GROUND_STATIONS
       const dc = Array.isArray(parsed.dataCenters) && parsed.dataCenters.length > 0 ? parsed.dataCenters : DEFAULT_DATA_CENTERS
-      const dl = Array.isArray(parsed.dataLinks) && parsed.dataLinks.length > 0 ? parsed.dataLinks : DEFAULT_DATA_LINKS
+      let dl = Array.isArray(parsed.dataLinks) && parsed.dataLinks.length > 0 ? parsed.dataLinks : DEFAULT_DATA_LINKS
+
+      // 确保默认链路均存在
+      DEFAULT_DATA_LINKS.forEach((defaultLink) => {
+        if (!dl.some((d: DataLink) => d.id === defaultLink.id || d.sourceSatelliteId === defaultLink.sourceSatelliteId)) {
+          dl.push(defaultLink)
+        }
+      })
 
       return {
         weapons: wpns,

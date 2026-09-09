@@ -183,6 +183,8 @@ export interface Satellite {
   launchDate: string
   /** 所属单位/国家/阵营代号 */
   owner: string
+  /** 所属卫星系列/星座代号 (例如：Starlink、Starshield、WorldView、Keyhole、SBIRS、GPS 等) */
+  series?: string
   /** 经典开普勒轨道六根数 */
   orbitalElements: OrbitalElements
   /** 载荷传感器配置 */
@@ -193,7 +195,64 @@ export interface Satellite {
   color: string
   /** 3D 渲染实体引用 ID (Cesium Entity ID) */
   entityId?: string
+  /**
+   * 目标卫星综合威胁度得分 (0 - 100 分)
+   * 结合载荷威慑力、轨道近度、重访频次与战略价值多因子加权评估
+   */
+  threatScore: number
+  /**
+   * 目标卫星战术威胁评定等级
+   */
+  threatLevel: ThreatLevel
+  /**
+   * 端到端空间通信与数传链路时延，单位：毫秒 (ms)
+   */
+  linkLatencyMs: number
+  /**
+   * 地面有效瞬时或重叠覆盖率，百分比 (0 - 100)
+   * 对战术通信与广域中继卫星尤为关键
+   */
+  coverageRate?: number
+  /**
+   * 单次对战区/地面站有效过境观测与下传窗口时长，单位：秒 (s)
+   */
+  overpassDurationSec: number
+  /**
+   * 我方武器打击可行性综合评分 (0 - 100 分)
+   * 结合武器射高包络、单发命中概率 Pk 与阵地反应发射时间测算
+   */
+  strikeFeasibilityScore: number
+  /**
+   * 推荐打击手段与可行性评估简述
+   */
+  strikeFeasibilityReason?: string
 }
+
+/**
+ * 目标卫星战术威胁度评定等级枚举
+ */
+export enum ThreatLevel {
+  /** 极高威胁 (Critical): 处于战区上空实时侦察或下发火控指引 */
+  CRITICAL = 'CRITICAL',
+  /** 高危威胁 (High): 战略中继或广域监视卫星 */
+  HIGH = 'HIGH',
+  /** 中度威胁 (Medium): 处于交会轨道或辅助通信星 */
+  MEDIUM = 'MEDIUM',
+  /** 低度威胁 (Low): 常规商用或离线卫星 */
+  LOW = 'LOW'
+}
+
+/**
+ * 卫星在轨列表排序维度类型
+ */
+export type SatelliteSortBy =
+  | 'DEFAULT'
+  | 'THREAT_DESC'
+  | 'THREAT_ASC'
+  | 'LATENCY_ASC'
+  | 'LATENCY_DESC'
+  | 'COVERAGE_DESC'
+  | 'COVERAGE_ASC'
 
 /**
  * 战术告警事件接口

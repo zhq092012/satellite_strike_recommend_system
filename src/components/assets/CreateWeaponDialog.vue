@@ -194,7 +194,7 @@ function resetForm(): void {
         <div class="flex items-center gap-2">
           <Crosshair class="w-4 h-4 text-tactical-red animate-pulse" />
           <h3 class="text-sm font-bold tracking-wider text-tactical-text">
-            添加武器装备系统 (DEPLOY WEAPON SYSTEM)
+            添加武器装备系统
           </h3>
         </div>
         <button

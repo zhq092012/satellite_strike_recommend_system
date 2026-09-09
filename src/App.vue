@@ -20,6 +20,7 @@ import CreateGroundStationDialog from './components/assets/CreateGroundStationDi
 import CreateDataCenterDialog from './components/assets/CreateDataCenterDialog.vue'
 import CreateDataLinkDialog from './components/assets/CreateDataLinkDialog.vue'
 import RightPanelQuickDock from './components/hud/RightPanelQuickDock.vue'
+import CombatPlanningModal from './components/planning/CombatPlanningModal.vue'
 </script>
 
 <template>
@@ -73,6 +74,9 @@ import RightPanelQuickDock from './components/hud/RightPanelQuickDock.vue'
 
     <!-- 15. 动态组建空间数据链路模态对话框 -->
     <CreateDataLinkDialog />
+
+    <!-- 16. 反卫作战计划推演决策向导模态框 (全流程六步闭环) -->
+    <CombatPlanningModal />
   </div>
 </template>
 

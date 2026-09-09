@@ -9,13 +9,14 @@ import {
   Gauge,
   Zap,
   Globe,
-  Radio,
   ChevronRight,
   Crosshair,
-  BatteryCharging
+  BatteryCharging,
+  Target
 } from 'lucide-vue-next'
 import { useSatelliteState } from '../../composables/useSatelliteState'
 import { useRightPanelState } from '../../composables/useRightPanelState'
+import { SatelliteCategory } from '../../types/satellite'
 
 /**
  * 引入态势状态数据
@@ -26,6 +27,72 @@ const { selectedSatellite } = useSatelliteState()
  * 引入右侧面板调度中心
  */
 const { isTelemetryActive, closeAllRightPanels } = useRightPanelState()
+
+/**
+ * 针对当前选中敌方卫星的武器打击智能推荐评估
+ */
+const strikeRecommendation = computed<{
+  recommendedWeapon: string
+  weaponType: string
+  strikeMethod: string
+  tacticalAdvantage: string
+  inRange: boolean
+}>(() => {
+  if (!selectedSatellite.value) {
+    return {
+      recommendedWeapon: '未指定目标',
+      weaponType: '待分配',
+      strikeMethod: '请在态势视景或左侧目标清单中选定敌方卫星',
+      tacticalAdvantage: '--',
+      inRange: false
+    }
+  }
+
+  const sat = selectedSatellite.value
+  const alt = sat.telemetry.altitude
+
+  if (alt <= 1200 && sat.category === SatelliteCategory.RECONNAISSANCE) {
+    return {
+      recommendedWeapon: 'HQ-19 陆基高空动能反卫拦截系统',
+      weaponType: '动能直接撞击物理摧毁 (KKV)',
+      strikeMethod: `目标当前轨高 ${alt.toFixed(0)}km，完全处于 HQ-19 动能包线(120-1200km)拦截窗口内。建议于近地点实施迎头直接碰撞拦截。备选方案：【光电神威-II 激光炮】实施光学焦平面硬烧蚀致盲。`,
+      tacticalAdvantage: '彻底物理碎裂解体，毁灭敌高分光学与雷达感知载荷',
+      inRange: true
+    }
+  } else if (alt <= 1500 && (sat.category === SatelliteCategory.EARLY_WARNING || sat.category === SatelliteCategory.RECONNAISSANCE)) {
+    return {
+      recommendedWeapon: '光电神威-II 兆瓦级地基高能致盲激光炮',
+      weaponType: '高原自适应兆瓦级高能激光致盲',
+      strikeMethod: `目标轨高 ${alt.toFixed(0)}km 处于激光炮 1500km 极限射高内。利用高原稀薄大气自适应相差矫正，连续照射数秒熔毁敌红外/光学光电探测敏感器。`,
+      tacticalAdvantage: '光速秒级交战响应、低轨道残骸附带效应、不可逆物理烧蚀',
+      inRange: true
+    }
+  } else if (sat.category === SatelliteCategory.COMMUNICATION && alt <= 1000) {
+    return {
+      recommendedWeapon: '凌霄-4 机动式超宽带大功率卫星干扰阵列',
+      weaponType: '超宽带同频大功率电子阻断压制',
+      strikeMethod: `目标为美低轨通信星座节点(轨高 ${alt.toFixed(0)}km)。建议由沿海车载机动干扰发射梯队对其 Ku/Ka 频段注入高增益同频噪声，瘫痪其对第一岛链前哨的数据下传；战时可由【HQ-19】实施重点动能截断。`,
+      tacticalAdvantage: '多波束并发压制，阻断敌前沿分布式态势与火力杀伤链',
+      inRange: true
+    }
+  } else if (sat.category === SatelliteCategory.NAVIGATION) {
+    return {
+      recommendedWeapon: '凌霄-4 机动式超宽带大功率卫星干扰阵列',
+      weaponType: '战术大空域导航授时干扰与伪距欺骗',
+      strikeMethod: `目标处于中地球轨道(${alt.toFixed(0)}km)，超出动能与激光拦截上限。利用超宽带大功率阵列针对 L1C/L2/M-Code 实施广域强电磁噪声压制与导航假星注入，诱偏敌精确制导弹药。`,
+      tacticalAdvantage: '广域瘫痪敌机载与舰载武器末端卫星伪距修正与定位',
+      inRange: true
+    }
+  } else {
+    return {
+      recommendedWeapon: '凌霄-4 机动式超宽带大功率卫星干扰发射阵列',
+      weaponType: '天基战略数据中继全频段电磁阻塞',
+      strikeMethod: `目标为静止高轨战略中继枢纽(${alt.toFixed(0)}km)。针对中继 S/Ku/Ka 转发器及对地测控基站实施全频段大功率电磁阻塞，彻底切断前沿多颗侦察星的跨洋回传链路。`,
+      tacticalAdvantage: '牵一发而动全身，一击斩断敌跨大洋天基情报分发大动脉',
+      inRange: true
+    }
+  }
+})
 
 /**
  * 卫星在轨速度占参考极值 (8.0 km/s) 的百分比
@@ -53,7 +120,7 @@ function formatCoverageArea(area: number): string {
 <template>
   <aside
     v-if="isTelemetryActive"
-    class="absolute top-16 right-3 z-20 flex transition-all duration-300 select-none max-h-[calc(100vh-120px)] w-84"
+    class="absolute top-16 right-3 z-20 flex transition-all duration-300 select-none max-h-[calc(100vh-120px)] w-[380px]"
   >
     <!-- 折叠收起按钮 (位于左侧边缘) -->
     <button
@@ -102,7 +169,7 @@ function formatCoverageArea(area: number): string {
         <div class="p-2.5 rounded bg-tactical-dark/50 border border-tactical-border/60">
           <div class="flex items-center gap-1.5 font-mono text-xs font-bold text-tactical-text mb-2 pb-1 border-b border-tactical-border/40">
             <Globe class="w-3.5 h-3.5 text-tactical-cyan" />
-            <span>开普勒轨道要素 (KEPLERIAN ELEMENTS)</span>
+            <span>开普勒轨道要素</span>
           </div>
           <div class="grid grid-cols-2 gap-2 font-mono text-xs">
             <div class="p-1.5 rounded bg-tactical-bg/70 border border-tactical-border/40">
@@ -148,7 +215,7 @@ function formatCoverageArea(area: number): string {
         <div class="p-2.5 rounded bg-tactical-dark/50 border border-tactical-border/60">
           <div class="flex items-center gap-1.5 font-mono text-xs font-bold text-tactical-text mb-2 pb-1 border-b border-tactical-border/40">
             <Gauge class="w-3.5 h-3.5 text-tactical-green" />
-            <span>实时运动学遥测 (DYNAMICS TELEMETRY)</span>
+            <span>实时运动学遥测</span>
           </div>
 
           <!-- 速度仪表进度 -->
@@ -200,7 +267,7 @@ function formatCoverageArea(area: number): string {
         <div class="p-2.5 rounded bg-tactical-dark/50 border border-tactical-border/60">
           <div class="flex items-center gap-1.5 font-mono text-xs font-bold text-tactical-text mb-2 pb-1 border-b border-tactical-border/40">
             <Zap class="w-3.5 h-3.5 text-tactical-amber" />
-            <span>载荷传感器与平台健康 (PAYLOAD & HEALTH)</span>
+            <span>载荷传感器与平台健康</span>
           </div>
 
           <div class="space-y-2 font-mono text-xs">
@@ -249,15 +316,42 @@ function formatCoverageArea(area: number): string {
           </div>
         </div>
 
-        <!-- 模块 4: 战术态势建议卡片 -->
-        <div class="p-2.5 rounded bg-tactical-cyan/10 border border-tactical-cyan/40 font-mono">
-          <div class="flex items-center gap-1 text-xs font-bold text-tactical-cyan mb-1">
-            <Radio class="w-3.5 h-3.5 animate-pulse" />
-            <span>战术任务建议</span>
+        <!-- 模块 4: 武器反卫打击智能推荐评估卡片 (ASAT STRIKE RECOMMENDATION) -->
+        <div class="p-2.5 rounded bg-tactical-dark/95 border border-tactical-red/60 font-mono shadow-[0_0_15px_rgba(239,68,68,0.15)]">
+          <div class="flex items-center justify-between pb-1.5 border-b border-tactical-border/60 mb-2">
+            <div class="flex items-center gap-1.5 text-xs font-bold text-tactical-red">
+              <Target class="w-3.5 h-3.5 animate-pulse" />
+              <span>反卫打击推荐评估</span>
+            </div>
+            <span
+              :class="[
+                'px-1.5 py-0.2 text-[9px] rounded font-bold border',
+                strikeRecommendation.inRange
+                  ? 'bg-tactical-red/20 border-tactical-red text-tactical-red'
+                  : 'bg-tactical-amber/20 border-tactical-amber text-tactical-amber'
+              ]"
+            >
+              {{ strikeRecommendation.inRange ? '● 动能/激光射程内' : '▲ 电子干扰射程内' }}
+            </span>
           </div>
-          <p class="text-[10px] text-tactical-muted leading-relaxed">
-            该目标当前在轨态势稳定，星下点视场对亚太核心海陆走廊保持有效连续覆盖，建议维持既定轨道根数并执行例行遥测监视。
-          </p>
+
+          <div class="space-y-1.5 text-[11px]">
+            <div>
+              <span class="text-tactical-muted text-[10px]">推荐打击武器: </span>
+              <span class="font-bold text-tactical-cyan">{{ strikeRecommendation.recommendedWeapon }}</span>
+            </div>
+            <div>
+              <span class="text-tactical-muted text-[10px]">主要交战样式: </span>
+              <span class="text-white font-bold">{{ strikeRecommendation.weaponType }}</span>
+            </div>
+            <div class="p-1.5 rounded bg-tactical-bg/80 border border-tactical-border/50 text-[10px] text-tactical-text leading-relaxed break-words">
+              {{ strikeRecommendation.strikeMethod }}
+            </div>
+            <div class="text-[9px] text-tactical-green flex items-center gap-1 font-bold">
+              <Zap class="w-3 h-3 text-tactical-green" />
+              <span>战术战损优势: {{ strikeRecommendation.tacticalAdvantage }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

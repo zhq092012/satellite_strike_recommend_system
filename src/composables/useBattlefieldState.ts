@@ -18,8 +18,8 @@ import {
 /**
  * LocalStorage 本地持久化缓存键名常量
  */
-const BATTLEFIELDS_STORAGE_KEY = 'TAC_SATELLITE_BATTLEFIELDS_V2'
-const MISSIONS_STORAGE_KEY = 'TAC_SATELLITE_MISSIONS_V2'
+const BATTLEFIELDS_STORAGE_KEY = 'TAC_SATELLITE_BATTLEFIELDS_V3'
+const MISSIONS_STORAGE_KEY = 'TAC_SATELLITE_MISSIONS_V3'
 
 /**
  * 预置真实感初始战场数据
@@ -117,7 +117,7 @@ const DEFAULT_MISSIONS: CombatMission[] = [
       TargetSatelliteType.RELAY
     ],
     politicalRedLine: PoliticalRedLine.MILITARY_ONLY,
-    targetConstellations: ['SBIRS (天基红外预警)', 'Keyhole / KH (锁眼)', 'WGS (宽带全球通信)'],
+    targetConstellations: ['SBIRS (天基红外预警)', 'Keyhole / KH (锁眼)', 'Starshield (星盾)', 'TDRS (天基中继网)'],
     battlefieldIds: ['BF-2026-001', 'BF-2026-002'],
     status: MissionStatus.PLANNING,
     priority: MissionPriority.HIGH,

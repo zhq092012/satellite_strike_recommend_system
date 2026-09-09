@@ -178,7 +178,7 @@ function handleClose(): void {
         <div class="flex items-center gap-2.5">
           <Radio class="w-4 h-4 text-cyan-400 animate-pulse" />
           <span class="text-sm font-bold tracking-wider text-cyan-300">
-            录入敌方地面测控与数据接收站 [GROUND STATION DEPLOYMENT]
+            录入敌方地面测控与数据接收站
           </span>
         </div>
         <button

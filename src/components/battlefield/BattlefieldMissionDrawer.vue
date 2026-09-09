@@ -149,7 +149,7 @@ function getRedLineDisplay(redLine: PoliticalRedLine): { label: string; cls: str
   <div
     :class="[
       'fixed top-16 right-3 z-30 flex transition-all duration-300 select-none max-h-[calc(100vh-120px)]',
-      isBattlefieldDrawerOpen ? 'w-96' : 'w-0 pointer-events-none'
+      isBattlefieldDrawerOpen ? 'w-[380px]' : 'w-0 pointer-events-none'
     ]"
   >
     <!-- 抽屉主体 -->

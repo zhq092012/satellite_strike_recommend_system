@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@antv/g6": "^5.1.1",
     "cesium": "^1.120.0",
     "lucide-vue-next": "^0.460.0",
     "vue": "^3.5.0"

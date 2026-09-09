@@ -161,7 +161,7 @@ function handleClose(): void {
         <div class="flex items-center gap-2.5">
           <Server class="w-4 h-4 text-amber-400 animate-pulse" />
           <span class="text-sm font-bold tracking-wider text-amber-300">
-            录入敌方情报指挥数据中心 [DATA CENTER DEPLOYMENT]
+            录入敌方情报指挥数据中心
           </span>
         </div>
         <button
