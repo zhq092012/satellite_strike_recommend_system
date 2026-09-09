@@ -1,0 +1,27 @@
+{
+  "name": "satellite-situation-analysis-system",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cesium": "^1.120.0",
+    "lucide-vue-next": "^0.460.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "autoprefixer": "^10.4.18",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.4.2",
+    "vite": "^5.2.0",
+    "vite-plugin-cesium": "^1.2.22",
+    "vue-tsc": "^2.0.6"
+  }
+}
