@@ -36,7 +36,9 @@ const {
   goToStep,
   nextStep,
   prevStep,
-  savePlanToMissions
+  savePlanToMissions,
+  currentPlanMission,
+  planMissionDurationHours
 } = useCombatPlanState()
 
 /**
@@ -113,6 +115,9 @@ onUnmounted(() => {
             </span>
             <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-tactical-cyan/15 text-tactical-cyan border border-tactical-cyan/40 hidden md:inline">
               全屏推演工作台
+            </span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/15 text-amber-300 border border-amber-400/40 hidden lg:inline">
+              基准任务: {{ currentPlanMission?.code }} ({{ planMissionDurationHours }}h)
             </span>
           </div>
           <p class="font-mono text-[10px] text-tactical-muted tracking-wider">

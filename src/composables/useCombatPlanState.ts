@@ -10,7 +10,7 @@
  */
 
 import { ref, computed } from 'vue'
-import { Satellite, SatelliteCategory } from '../types/satellite'
+import { Satellite, SatelliteCategory, OrbitType } from '../types/satellite'
 import { WeaponSystem, DataLink, WeaponType } from '../types/tacticalAssets'
 import { useSatelliteState } from './useSatelliteState'
 import { useTacticalAssetsState } from './useTacticalAssetsState'
@@ -20,7 +20,8 @@ import {
   MissionPriority,
   PoliticalRedLine,
   TargetSatelliteType,
-  CombatMission
+  CombatMission,
+  Battlefield
 } from '../types/battlefield'
 
 /**
@@ -149,6 +150,39 @@ const isCombatPlanModalOpen = ref<boolean>(false)
  */
 const currentStep = ref<CombatPlanStep>(CombatPlanStep.THREAT_ANALYSIS)
 
+// =================== 步骤 1：关联作战任务与推演参数 ===================
+/**
+ * 步骤 1 目标卫星在任务期内的战术威胁评估对象
+ */
+export interface SatelliteThreatAssessment extends Satellite {
+  /** 任务期内动态解算的综合威胁度得分 (0 - 100) */
+  inMissionThreatScore: number
+  /** 任务期内对指定战区空域的过境次数 */
+  inMissionPassesCount: number
+  /** 任务期内累计过境留空侦察/通信总时长 (秒) */
+  inMissionTotalOverpassSec: number
+  /** 首次入境过境窗口相对时间倒计时 (分钟) */
+  inMissionNextPassMinute: number
+  /** 战区视场交叠覆盖率 (%) */
+  areaOverlapRate: number
+  /** 算法各分项具体得分 */
+  componentScores: {
+    payload: number
+    orbit: number
+    revisit: number
+    strategy: number
+  }
+  /** 威胁度排名 (从高到低：1, 2, 3...) */
+  rank: number
+}
+
+/** 步骤 1：当前关联的作战任务 ID (默认关联系统重点作战任务 MSN-2026-01) */
+const selectedPlanMissionId = ref<string>('MSN-2026-01')
+/** 步骤 1：推演任务时长 (小时，如 6, 12, 24, 48, 72 小时) */
+const planMissionDurationHours = ref<number>(24)
+/** 步骤 1：关联作战战区空域 ID */
+const selectedPlanBattlefieldId = ref<string>('BF-2026-001')
+
 // =================== 步骤 1：威胁度分析参数 ===================
 /** 步骤 1：威胁度门限筛选阈值 (0 - 100 分) */
 const threatFilterThreshold = ref<number>(85)
@@ -156,7 +190,7 @@ const threatFilterThreshold = ref<number>(85)
 const wPayload = ref<number>(0.35)
 /** 轨道高度近度权重系数 */
 const wOrbit = ref<number>(0.25)
-/** 重访频次权重系数 */
+/** 重访频次权重系数 (即任务期内过境频次与在空暴露时长) */
 const wRevisit = ref<number>(0.20)
 /** 战略价值权重系数 */
 const wStrategy = ref<number>(0.20)
@@ -197,17 +231,238 @@ const isSaveSuccess = ref<boolean>(false)
 export function useCombatPlanState() {
   const { satellites } = useSatelliteState()
   const { weapons, dataLinks, groundStations, dataCenters } = useTacticalAssetsState()
-  const { missions } = useBattlefieldState()
+  const { missions, battlefields } = useBattlefieldState()
 
-  // ----------------- 步骤 1 计算属性 -----------------
+  // ----------------- 步骤 1：关联任务与时空基准 -----------------
   /**
-   * 步骤 1：根据多属性加权算法与筛选门限过滤的目标卫星列表
+   * 当前关联的作战任务对象
    */
-  const step1Candidates = computed<Satellite[]>(() => {
-    return satellites.value.filter((sat) => {
-      const score = sat.threatScore ?? 0
-      return score >= threatFilterThreshold.value
+  const currentPlanMission = computed<CombatMission | undefined>(() => {
+    return (
+      missions.value.find((m) => m.id === selectedPlanMissionId.value) ||
+      missions.value[0]
+    )
+  })
+
+  /**
+   * 当前关联的目标战区空域对象
+   */
+  const currentPlanBattlefield = computed<Battlefield | undefined>(() => {
+    if (selectedPlanBattlefieldId.value) {
+      const match = battlefields.value.find((b) => b.id === selectedPlanBattlefieldId.value)
+      if (match) return match
+    }
+    if (currentPlanMission.value?.battlefieldIds?.length) {
+      const match = battlefields.value.find((b) => b.id === currentPlanMission.value?.battlefieldIds[0])
+      if (match) return match
+    }
+    return battlefields.value[0]
+  })
+
+  /**
+   * 切换当前关联的作战任务，并自动同步其主战区空域
+   */
+  function setPlanMission(missionId: string): void {
+    selectedPlanMissionId.value = missionId
+    const m = missions.value.find((item) => item.id === missionId)
+    if (m && m.battlefieldIds && m.battlefieldIds.length > 0) {
+      selectedPlanBattlefieldId.value = m.battlefieldIds[0]
+    }
+  }
+
+  /**
+   * 调节推演任务时长 (小时)
+   */
+  function setPlanMissionDurationHours(hours: number): void {
+    planMissionDurationHours.value = Math.max(1, Math.min(168, Math.round(hours)))
+  }
+
+  /**
+   * 切换关联的目标战区空域
+   */
+  function setPlanBattlefield(battlefieldId: string): void {
+    selectedPlanBattlefieldId.value = battlefieldId
+  }
+
+  // ----------------- 步骤 1 计算属性：过境解算与威胁度动态排序 -----------------
+  /**
+   * 步骤 1：基于关联任务时长、目标区域以及 MADM-AHP 模型动态解算的全体在轨卫星威胁度评估
+   * 并且按照【综合威胁度从高到低】严格降序排列 (Descending Order)
+   */
+  const evaluatedSatellites = computed<SatelliteThreatAssessment[]>(() => {
+    const mission = currentPlanMission.value
+    const durHours = planMissionDurationHours.value
+
+    const list: SatelliteThreatAssessment[] = satellites.value.map((sat) => {
+      // 1. 载荷威慑力 P_payload
+      let payloadBase = 85
+      if (sat.sensor.name.includes('2.4米') || sat.sensor.type.includes('分米级')) payloadBase = 98
+      else if (sat.sensor.name.includes('0.31m') || sat.sensor.name.includes('WV-110')) payloadBase = 90
+      else if (sat.sensor.name.includes('SAR') || sat.sensor.name.includes('合成孔径')) payloadBase = 94
+      else if (sat.sensor.name.includes('早期预警') || sat.sensor.name.includes('红外')) payloadBase = 92
+      else if (sat.sensor.name.includes('星链') || sat.sensor.name.includes('宽带')) payloadBase = 86
+      else if (sat.category === SatelliteCategory.NAVIGATION) payloadBase = 84
+      else if (sat.category === SatelliteCategory.RELAY) payloadBase = 88
+
+      // 若卫星类别属于当前关联任务明确打击重点，战术加权提升 4 分
+      if (mission?.targetSatelliteTypes) {
+        const isTargetMatch = mission.targetSatelliteTypes.some((t) => {
+          if (t === TargetSatelliteType.RECONNAISSANCE && sat.category === SatelliteCategory.RECONNAISSANCE) return true
+          if (t === TargetSatelliteType.COMMUNICATION && sat.category === SatelliteCategory.COMMUNICATION) return true
+          if (t === TargetSatelliteType.NAVIGATION && sat.category === SatelliteCategory.NAVIGATION) return true
+          if (t === TargetSatelliteType.EARLY_WARNING && sat.name.includes('预警')) return true
+          if (t === TargetSatelliteType.RELAY && sat.category === SatelliteCategory.RELAY) return true
+          return false
+        })
+        if (isTargetMatch) {
+          payloadBase = Math.min(100, payloadBase + 4)
+        }
+      }
+
+      // 2. 轨道近度 O_orbit: 1 - (H - Hmin)/(Hmax - Hmin)
+      const alt = sat.telemetry?.altitude || 500
+      let orbitScore = 80
+      if (sat.orbitType === OrbitType.LEO) {
+        orbitScore = Math.min(99, Math.max(86, Math.round(100 - (alt - 300) / 16)))
+      } else if (sat.orbitType === OrbitType.MEO) {
+        orbitScore = 55
+      } else {
+        orbitScore = 32 // GEO
+      }
+
+      // 3. 在任务时间内的过境计算 (过境次数与在空侦察/通信累计留空时长)
+      let basePasses24h = 3
+      let basePassDurationSec = 420
+      let nextPassMin = 15
+      let areaOverlapRate = 70
+
+      if (sat.orbitType === OrbitType.LEO) {
+        if (sat.id.includes('USA-290')) {
+          basePasses24h = 4
+          basePassDurationSec = 450
+          nextPassMin = 12
+          areaOverlapRate = 96
+        } else if (sat.id.includes('USA-326')) {
+          basePasses24h = 4
+          basePassDurationSec = 480
+          nextPassMin = 18
+          areaOverlapRate = 93
+        } else if (sat.id.includes('STARSHIELD')) {
+          basePasses24h = 4
+          basePassDurationSec = 380
+          nextPassMin = 22
+          areaOverlapRate = 89
+        } else if (sat.id.includes('WORLDVIEW')) {
+          basePasses24h = 3
+          basePassDurationSec = 420
+          nextPassMin = 34
+          areaOverlapRate = 86
+        } else if (sat.id.includes('STARLINK')) {
+          basePasses24h = 3
+          basePassDurationSec = 300
+          nextPassMin = 26
+          areaOverlapRate = 83
+        } else if (sat.id.includes('USA-288')) {
+          basePasses24h = 2
+          basePassDurationSec = 520
+          nextPassMin = 42
+          areaOverlapRate = 80
+        }
+      } else if (sat.orbitType === OrbitType.MEO) {
+        basePasses24h = 2
+        basePassDurationSec = 2200
+        nextPassMin = 36
+        areaOverlapRate = 76
+      } else {
+        // GEO 卫星常驻视场凝视
+        basePasses24h = 1
+        basePassDurationSec = durHours * 3600
+        nextPassMin = 0
+        areaOverlapRate = 92
+      }
+
+      // 根据任务时长缩放计算过境次数与总留空时长
+      const inMissionPassesCount = sat.orbitType === OrbitType.GEO
+        ? 1
+        : Math.max(1, Math.round(basePasses24h * (durHours / 24)))
+
+      const inMissionTotalOverpassSec = sat.orbitType === OrbitType.GEO
+        ? durHours * 3600
+        : inMissionPassesCount * basePassDurationSec
+
+      // 任务期过境重访得分 R_revisit:
+      // 在任务有效窗口内，过境频次越高、滞空时间越长、战区重合度越高，该项得分越高
+      let revisitScore = 80
+      if (sat.orbitType === OrbitType.GEO) {
+        revisitScore = 91 // 全时凝视常态支援
+      } else {
+        revisitScore = Math.min(
+          100,
+          Math.max(50, Math.round(62 + inMissionPassesCount * 7 + (inMissionTotalOverpassSec / 60) * 0.25))
+        )
+      }
+
+      // 4. 战略价值 V_strat
+      let strategyScore = 82
+      if (sat.owner.includes('NRO') || sat.series?.includes('Keyhole')) strategyScore = 96
+      else if (sat.series?.includes('Starshield')) strategyScore = 94
+      else if (sat.owner.includes('US-SPACE-FORCE') || sat.name.includes('FIA-Radar')) strategyScore = 93
+      else if (sat.name.includes('TDRS')) strategyScore = 91
+      else if (sat.series?.includes('WorldView')) strategyScore = 88
+      else if (sat.series?.includes('Starlink')) strategyScore = 86
+      else strategyScore = 84
+
+      // MADM-AHP 多属性归一化加权融合
+      const totalWeight = wPayload.value + wOrbit.value + wRevisit.value + wStrategy.value || 1
+      const normalizedW1 = wPayload.value / totalWeight
+      const normalizedW2 = wOrbit.value / totalWeight
+      const normalizedW3 = wRevisit.value / totalWeight
+      const normalizedW4 = wStrategy.value / totalWeight
+
+      const calculatedScore = Math.round(
+        normalizedW1 * payloadBase +
+        normalizedW2 * orbitScore +
+        normalizedW3 * revisitScore +
+        normalizedW4 * strategyScore
+      )
+      const inMissionThreatScore = Math.min(100, Math.max(50, calculatedScore))
+
+      return {
+        ...sat,
+        threatScore: inMissionThreatScore,
+        inMissionThreatScore,
+        inMissionPassesCount,
+        inMissionTotalOverpassSec,
+        inMissionNextPassMinute: nextPassMin,
+        areaOverlapRate,
+        componentScores: {
+          payload: payloadBase,
+          orbit: orbitScore,
+          revisit: revisitScore,
+          strategy: strategyScore
+        },
+        rank: 0
+      }
     })
+
+    // 核心要求：按照任务期内综合威胁度从高到低严格倒序排列 (Descending Order)
+    list.sort((a, b) => b.inMissionThreatScore - a.inMissionThreatScore)
+
+    // 赋予排名序列 (1, 2, 3...)
+    list.forEach((item, index) => {
+      item.rank = index + 1
+    })
+
+    return list
+  })
+
+  /**
+   * 步骤 1：根据多属性加权算法与筛选门限过滤的目标卫星列表 (严格按威胁度从高到低倒序排序)
+   */
+  const step1Candidates = computed<SatelliteThreatAssessment[]>(() => {
+    return evaluatedSatellites.value.filter(
+      (sat) => sat.inMissionThreatScore >= threatFilterThreshold.value
+    )
   })
 
   // ----------------- 步骤 2 计算属性 -----------------
@@ -215,10 +470,12 @@ export function useCombatPlanState() {
    * 步骤 2：根据过境下传时长过滤的卫星列表 (过境时长 <= 门限)
    */
   const step2Candidates = computed<Satellite[]>(() => {
-    return satellites.value.filter((sat) => {
-      const duration = sat.overpassDurationSec ?? 999999
-      return duration <= maxLinkDurationThreshold.value
-    })
+    return satellites.value
+      .filter((sat) => {
+        const duration = sat.overpassDurationSec ?? 999999
+        return duration <= maxLinkDurationThreshold.value
+      })
+      .sort((a, b) => (a.overpassDurationSec ?? 999) - (b.overpassDurationSec ?? 999))
   })
 
   /**
@@ -909,7 +1166,18 @@ export function useCombatPlanState() {
   return {
     isCombatPlanModalOpen,
     currentStep,
-    // Step 1
+    // Step 1: 关联任务、时空基准与威胁度动态解算
+    selectedPlanMissionId,
+    planMissionDurationHours,
+    selectedPlanBattlefieldId,
+    currentPlanMission,
+    currentPlanBattlefield,
+    missions,
+    battlefields,
+    evaluatedSatellites,
+    setPlanMission,
+    setPlanMissionDurationHours,
+    setPlanBattlefield,
     threatFilterThreshold,
     wPayload,
     wOrbit,

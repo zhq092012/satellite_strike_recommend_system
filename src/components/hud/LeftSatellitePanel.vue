@@ -7,20 +7,19 @@
 import { ref } from 'vue'
 import {
   Search,
-  Crosshair,
   ChevronLeft,
   ChevronRight,
-  Target,
   Satellite as SatIcon,
   SlidersHorizontal,
   ArrowUpDown,
   ShieldAlert,
   Wifi,
   Globe,
-  RotateCcw
+  RotateCcw,
+  Zap
 } from 'lucide-vue-next'
 import { useSatelliteState } from '../../composables/useSatelliteState'
-import { useBattlefieldState } from '../../composables/useBattlefieldState'
+import { useCombatPlanState } from '../../composables/useCombatPlanState'
 import { OrbitType, SatelliteCategory, Satellite, SatelliteSortBy } from '../../types/satellite'
 
 /**
@@ -29,7 +28,6 @@ import { OrbitType, SatelliteCategory, Satellite, SatelliteSortBy } from '../../
 const {
   filteredSatellites,
   selectedSatelliteId,
-  isTracked,
   searchKeyword,
   orbitTypeFilter,
   categoryFilter,
@@ -38,14 +36,13 @@ const {
   maxLinkLatency,
   minCoverageRate,
   sortBy,
-  selectSatellite,
-  toggleTrack
+  selectSatellite
 } = useSatelliteState()
 
 /**
- * 引入战场与任务状态控制
+ * 引入作战计划决策向导控制
  */
-const { isCreateMissionModalOpen } = useBattlefieldState()
+const { openCombatPlanModal } = useCombatPlanState()
 
 /**
  * 面板是否处于展开状态 (支持收起以扩充主态势三维视野)
@@ -123,13 +120,6 @@ const seriesOptions: { label: string; value: string }[] = [
  */
 function handleSatelliteClick(sat: Satellite): void {
   selectSatellite(sat.id)
-}
-
-/**
- * 切换跟踪状态
- */
-function handleToggleTrack(): void {
-  toggleTrack()
 }
 
 /**
@@ -501,29 +491,15 @@ function getStatusLabel(status: string): string {
         </div>
       </div>
 
-      <!-- 底部操作与锁定跟随开关 + 快速新建任务 -->
-      <div class="p-2.5 border-t border-tactical-border/80 bg-tactical-dark/60 flex items-center gap-2">
+      <!-- 底部操作：加入分析计划 -->
+      <div class="p-2.5 border-t border-tactical-border/80 bg-tactical-dark/60 flex items-center">
         <button
-          @click="handleToggleTrack"
-          :class="[
-            'flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded font-mono text-xs font-bold transition-all border',
-            isTracked
-              ? 'bg-tactical-cyan/20 border-tactical-cyan text-tactical-cyan shadow-glow-cyan'
-              : 'bg-tactical-dark border-tactical-border text-tactical-muted hover:text-tactical-text'
-          ]"
+          @click="openCombatPlanModal"
+          class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded font-mono text-xs font-bold transition-all border bg-tactical-cyan/20 hover:bg-tactical-cyan/35 border-tactical-cyan text-tactical-cyan shadow-glow-cyan hover:scale-[1.02] active:scale-95 cursor-pointer"
+          title="将当前选定目标卫星纳入六步闭环作战推演与火力打击规划"
         >
-          <Crosshair class="w-3.5 h-3.5" :class="{ 'animate-spin-slow': isTracked }" />
-          <span>{{ isTracked ? '跟踪中' : '自由视角' }}</span>
-        </button>
-
-        <!-- 显眼的新建任务快捷入口 -->
-        <button
-          @click="isCreateMissionModalOpen = true"
-          class="flex items-center justify-center gap-1 py-1.5 px-2.5 rounded font-mono text-xs font-bold transition-all border bg-tactical-cyan/20 hover:bg-tactical-cyan/35 border-tactical-cyan text-tactical-cyan shadow-glow-cyan"
-          title="针对目标下达新的打击任务"
-        >
-          <Target class="w-3.5 h-3.5" />
-          <span>+ 下达任务</span>
+          <Zap class="w-4 h-4 text-tactical-cyan animate-pulse" />
+          <span>加入分析计划</span>
         </button>
       </div>
     </div>

@@ -4,7 +4,7 @@
  * 专职负责将选定的武器系统放置部署到指定的地理经纬度区域 (支持手动录入、战略要地搜索与三维地球交互点选拾取)
  */
 
-import { reactive, ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed } from 'vue'
 import {
   X,
   Crosshair,
@@ -65,15 +65,13 @@ const justPickedFromMap = ref<boolean>(false)
 const pickedSuccessMessage = ref<string>('')
 
 /**
- * 部署表单数据
+ * 部署表单原子响应式状态
  */
-const deployForm = reactive({
-  locationName: '华北某防空反导发射阵地',
-  longitude: 117.20,
-  latitude: 39.10,
-  altitudeM: 60,
-  quantity: 8
-})
+const locationName = ref<string>('华北某防空反导发射阵地')
+const longitude = ref<number>(117.20)
+const latitude = ref<number>(39.10)
+const altitudeM = ref<number>(60)
+const quantity = ref<number>(8)
 
 /**
  * 当前选中的武器实体
@@ -122,11 +120,11 @@ watch(selectedWeaponId, (newId, oldId) => {
 function initFormForSelectedWeapon(): void {
   const wpn = currentWeapon.value
   if (!wpn) {
-    deployForm.locationName = '华北某防空反导发射阵地'
-    deployForm.longitude = 117.20
-    deployForm.latitude = 39.10
-    deployForm.altitudeM = 60
-    deployForm.quantity = 8
+    locationName.value = '华北某防空反导发射阵地'
+    longitude.value = 117.20
+    latitude.value = 39.10
+    altitudeM.value = 60
+    quantity.value = 8
     return
   }
 
@@ -136,19 +134,19 @@ function initFormForSelectedWeapon(): void {
     typeof wpn.position.latitude === 'number' && !isNaN(wpn.position.latitude)
 
   if (hasValidPosition && (wpn.isDeployed || wpn.locationName !== '待部署阵地')) {
-    deployForm.locationName = wpn.locationName || '某防空反导发射阵地'
-    deployForm.longitude = Number(Number(wpn.position!.longitude).toFixed(4))
-    deployForm.latitude = Number(Number(wpn.position!.latitude).toFixed(4))
-    deployForm.altitudeM = Number(wpn.position!.altitudeM || 50)
+    locationName.value = wpn.locationName || '某防空反导发射阵地'
+    longitude.value = Number(Number(wpn.position!.longitude).toFixed(4))
+    latitude.value = Number(Number(wpn.position!.latitude).toFixed(4))
+    altitudeM.value = Number(wpn.position!.altitudeM || 50)
   } else {
     // 针对新录入或尚未部署阵地的武器，提供推荐初始坐标
-    deployForm.locationName = wpn.locationName && wpn.locationName !== '待部署阵地' ? wpn.locationName : '华北某防空反导发射阵地'
-    deployForm.longitude = 117.20
-    deployForm.latitude = 39.10
-    deployForm.altitudeM = 60
+    locationName.value = wpn.locationName && wpn.locationName !== '待部署阵地' ? wpn.locationName : '华北某防空反导发射阵地'
+    longitude.value = 117.20
+    latitude.value = 39.10
+    altitudeM.value = 60
   }
 
-  deployForm.quantity = (typeof wpn.quantity === 'number' && wpn.quantity > 0) ? wpn.quantity : 8
+  quantity.value = (typeof wpn.quantity === 'number' && wpn.quantity > 0) ? wpn.quantity : 8
   errorMessage.value = ''
 }
 
@@ -163,10 +161,11 @@ watch(locationQuery, (newVal) => {
  * @param loc - 要地坐标与名称对象
  */
 function handleSelectLocation(loc: any): void {
-  deployForm.longitude = Number(Number(loc.longitude).toFixed(4))
-  deployForm.latitude = Number(Number(loc.latitude).toFixed(4))
-  deployForm.locationName = loc.name
-  pickedSuccessMessage.value = `✓ 已填入要地坐标：${loc.name} (${deployForm.longitude}°E, ${deployForm.latitude}°N)`
+  longitude.value = Number(Number(loc.longitude).toFixed(4))
+  latitude.value = Number(Number(loc.latitude).toFixed(4))
+  altitudeM.value = 50
+  locationName.value = loc.name
+  pickedSuccessMessage.value = `已填入要地坐标：${loc.name} (${longitude.value}°E, ${latitude.value}°N)`
   locationQuery.value = ''
   searchSuggestions.value = []
 }
@@ -197,14 +196,14 @@ function handleStartMapPointPick(): void {
  * 将从地球成功拾取到的经纬度注入表单并重新打开模态框
  */
 function applyPickedCoordinates(lon: number, lat: number, alt?: number): void {
-  deployForm.longitude = Number(lon.toFixed(4))
-  deployForm.latitude = Number(lat.toFixed(4))
-  deployForm.altitudeM = (alt !== undefined && !isNaN(alt)) ? Math.round(alt) : 50
-  deployForm.locationName = `地图标定阵地 (${deployForm.longitude}°, ${deployForm.latitude}°)`
+  longitude.value = Number(lon.toFixed(4))
+  latitude.value = Number(lat.toFixed(4))
+  altitudeM.value = (alt !== undefined && !isNaN(alt)) ? Math.round(alt) : 50
+  locationName.value = `地图标定阵地 (${longitude.value}°, ${latitude.value}°)`
   
   // 保持处于地球点选模式，便于指挥员查看
   locationMode.value = 'MAP_CLICK'
-  pickedSuccessMessage.value = `✓ 已从三维地球成功拾取目标战区坐标：东经 ${deployForm.longitude}°，北纬 ${deployForm.latitude}° (海拔 ${deployForm.altitudeM}m)`
+  pickedSuccessMessage.value = `已从三维地球成功拾取目标战区坐标：东经 ${longitude.value}°，北纬 ${latitude.value}° (海拔 ${altitudeM.value}m)`
   
   // 关键防覆盖标记：保护刚拾取的数据不被 initForm 重置
   justPickedFromMap.value = true
@@ -221,16 +220,16 @@ function handleSubmitDeploy(): void {
     errorMessage.value = '请先选择要部署的武器装备'
     return
   }
-  if (!deployForm.locationName.trim()) {
-    deployForm.locationName = `发射阵地 (${deployForm.longitude}°, ${deployForm.latitude}°)`
+  if (!locationName.value.trim()) {
+    locationName.value = `发射阵地 (${longitude.value}°, ${latitude.value}°)`
   }
 
   const deployed = deployWeapon(selectedWeaponId.value, {
-    locationName: deployForm.locationName.trim(),
-    longitude: deployForm.longitude,
-    latitude: deployForm.latitude,
-    altitudeM: deployForm.altitudeM,
-    quantity: deployForm.quantity
+    locationName: locationName.value.trim(),
+    longitude: longitude.value,
+    latitude: latitude.value,
+    altitudeM: altitudeM.value,
+    quantity: quantity.value
   })
 
   if (deployed && deployed.position) {
@@ -275,7 +274,7 @@ function getWeaponTypeLabel(type: WeaponType): string {
 
 <template>
   <div
-    v-if="isDeployWeaponModalOpen"
+    v-show="isDeployWeaponModalOpen"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm select-none p-4 font-mono"
   >
     <div class="relative w-full max-w-2xl bg-tactical-panel/95 border border-tactical-cyan/70 rounded-lg tactical-corner-bracket shadow-tactical-panel flex flex-col max-h-[92vh] overflow-hidden animate-fade-in">
@@ -472,15 +471,29 @@ function getWeaponTypeLabel(type: WeaponType): string {
 
           <!-- 阵地名称与经纬度输入 -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <!-- 实时阵地标定读数看板 -->
+            <div class="sm:col-span-3 p-2 rounded bg-cyan-950/40 border border-cyan-800/60 flex flex-wrap items-center justify-between text-[11px] font-mono text-cyan-300">
+              <div class="flex items-center gap-1.5">
+                <MapPin class="w-3.5 h-3.5 text-tactical-cyan" />
+                <span class="text-tactical-muted">当前标定阵地:</span>
+                <span class="font-bold text-tactical-text">{{ locationName || '未命名阵地' }}</span>
+              </div>
+              <div class="flex items-center gap-3 font-bold text-tactical-cyan">
+                <span>{{ Number(longitude).toFixed(4) }}°E</span>
+                <span>{{ Number(latitude).toFixed(4) }}°N</span>
+                <span class="text-tactical-muted text-[10px]">海拔: {{ altitudeM }}m</span>
+              </div>
+            </div>
+
             <div class="sm:col-span-3">
               <label class="block text-[10px] text-tactical-muted mb-1">
                 阵地部署名称 <span class="text-tactical-cyan">*</span>
               </label>
               <input
-                v-model="deployForm.locationName"
+                v-model="locationName"
                 type="text"
                 placeholder="如：华北某防空反导发射阵地"
-                class="w-full px-3 py-1.5 rounded bg-tactical-bg border border-tactical-border text-tactical-text focus:outline-none focus:border-tactical-cyan"
+                class="w-full px-3 py-1.5 rounded bg-tactical-bg border border-tactical-border text-tactical-text focus:outline-none focus:border-tactical-cyan font-bold"
               />
             </div>
 
@@ -489,7 +502,7 @@ function getWeaponTypeLabel(type: WeaponType): string {
                 部署经度 Longitude (°)
               </label>
               <input
-                v-model.number="deployForm.longitude"
+                v-model.number="longitude"
                 type="number"
                 step="0.0001"
                 min="-180"
@@ -503,7 +516,7 @@ function getWeaponTypeLabel(type: WeaponType): string {
                 部署纬度 Latitude (°)
               </label>
               <input
-                v-model.number="deployForm.latitude"
+                v-model.number="latitude"
                 type="number"
                 step="0.0001"
                 min="-90"
@@ -517,10 +530,10 @@ function getWeaponTypeLabel(type: WeaponType): string {
                 阵地海拔高度 (米)
               </label>
               <input
-                v-model.number="deployForm.altitudeM"
+                v-model.number="altitudeM"
                 type="number"
                 step="1"
-                class="w-full px-2.5 py-1.5 rounded bg-tactical-bg border border-tactical-border text-tactical-text focus:outline-none focus:border-tactical-cyan"
+                class="w-full px-2.5 py-1.5 rounded bg-tactical-bg border border-tactical-border text-tactical-text focus:outline-none focus:border-tactical-cyan font-bold"
               />
             </div>
           </div>
@@ -531,7 +544,7 @@ function getWeaponTypeLabel(type: WeaponType): string {
               本次部署可用单元数 / 备弹基数
             </label>
             <input
-              v-model.number="deployForm.quantity"
+              v-model.number="quantity"
               type="number"
               min="1"
               max="99"

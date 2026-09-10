@@ -2,7 +2,6 @@
  * @fileoverview 卫星态势分析系统核心类型定义文件
  * 包含卫星分类、轨道要素、实时遥测数据、战术告警事件与视场传感器配置等全生命周期类型
  */
-
 /**
  * 卫星任务类型枚举
  */
@@ -16,7 +15,9 @@ export enum SatelliteCategory {
   /** 导航与定位授时卫星 (Navigation & Positioning) */
   NAVIGATION = 'NAVIGATION',
   /** 空间实验与技术验证卫星 (Experimental) */
-  EXPERIMENTAL = 'EXPERIMENTAL'
+  EXPERIMENTAL = 'EXPERIMENTAL',
+  /** 中继卫星 */
+  RELAY = "RELAY"
 }
 
 /**

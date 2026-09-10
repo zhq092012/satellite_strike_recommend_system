@@ -33,6 +33,9 @@ const {
   matchedWeaponPlans,
   combatImpactOverview,
   isSaveSuccess,
+  currentPlanMission,
+  planMissionDurationHours,
+  currentPlanBattlefield,
   savePlanToMissions,
   exportPlanAsJson,
   exportPlanAsMarkdown
@@ -104,6 +107,19 @@ function handleExportMarkdown(): void {
         <span class="text-[10px] px-2 py-0.5 rounded bg-tactical-cyan/20 text-tactical-cyan border border-tactical-cyan/40">
           保密等级: 绝密
         </span>
+      </div>
+
+      <!-- 关联作战任务约束条目 -->
+      <div class="mb-3 p-2 rounded bg-slate-950/70 border border-tactical-cyan/40 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+        <div class="flex items-center gap-2">
+          <span class="text-tactical-muted">推演基准任务:</span>
+          <span class="text-tactical-cyan font-bold">[{{ currentPlanMission?.id }}] {{ currentPlanMission?.name }}</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-amber-300">时长: {{ planMissionDurationHours }} 小时</span>
+          <span class="text-slate-500">|</span>
+          <span class="text-cyan-300">战区: {{ currentPlanBattlefield?.name }} (R={{ currentPlanBattlefield?.area?.radiusKm }}km)</span>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

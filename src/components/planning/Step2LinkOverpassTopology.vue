@@ -1,25 +1,28 @@
 <script setup lang="ts">
 /**
  * @fileoverview 作战计划向导 - 第二步：分析链路时长与四层空间数据链路拓扑 (Step2LinkOverpassTopology.vue)
- * 展示过境时间与地面站可见仰角计算推导公式、过境时长门限筛选器、筛选结果候选卫星列表，
- * 并支持用户点击任意候选卫星，动态联动切换并聚焦呈现该卫星专属的四层立体传输数据链路：
- * 第一层：目标卫星 -> 第二层：中继卫星 -> 第三层：地面站 -> 第四层：数据中心
+ * 展示过境时间与地面站可见仰角计算推导公式、过境时长门限筛选器、候选卫星卡片，
+ * 以及 1:1 还原的高清四层空间数据链路拓扑图 (侦察卫星 -> 中继卫星 -> 12个地面接收站 -> 亚马逊AWS北美云集群/数据中心)
  */
 
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import {
   Clock,
   Network,
   Sliders,
   CheckCircle2,
-  Share2,
-  Sparkles
+  Sparkles,
+  Radio,
+  Server,
+  Zap,
+  Wifi,
+  Satellite as SatelliteIcon
 } from 'lucide-vue-next'
-import { Graph } from '@antv/g6'
 import { useCombatPlanState } from '../../composables/useCombatPlanState'
 import { useTacticalAssetsState } from '../../composables/useTacticalAssetsState'
 import { useSatelliteState } from '../../composables/useSatelliteState'
-import type { DataLink } from '../../types/tacticalAssets'
+import { OperationalStatus } from '../../types/satellite'
+import { DataLinkTopologyType, DataLinkStatus, type DataLink } from '../../types/tacticalAssets'
 
 /**
  * 引入作战计划状态与计算数据
@@ -34,23 +37,13 @@ const {
 /**
  * 引入态势资产与卫星数据
  */
-const { dataLinks, groundStations, dataCenters } = useTacticalAssetsState()
+const { dataLinks } = useTacticalAssetsState()
 const { satellites } = useSatelliteState()
 
 /**
  * 拓扑图展示模式：'SINGLE' (单星专属链路聚焦) | 'ALL' (全网四层总览)
  */
 const topologyDisplayMode = ref<'SINGLE' | 'ALL'>('SINGLE')
-
-/**
- * G6 渲染容器 DOM 引用
- */
-const g6Container = ref<HTMLDivElement | null>(null)
-
-/**
- * G6 图实例句柄
- */
-let graphInstance: Graph | null = null
 
 /**
  * 当前选中的卫星对象
@@ -64,368 +57,119 @@ const currentSelectedSatellite = computed(() => {
 /**
  * 当前选中卫星对应的数据传输链路对象
  */
-const activeDataLink = computed<DataLink | null>(() => {
+const activeDataLink = computed<DataLink>(() => {
   const sat = currentSelectedSatellite.value
-  if (!sat) return null
+  if (!sat) {
+    return {
+      id: 'DL-FALLBACK',
+      name: '默认西太战区数据传输综合链路',
+      topologyType: DataLinkTopologyType.DIRECT,
+      sourceSatelliteId: 'SAT-USA-290',
+      groundStationId: 'GS-GUAM-ANDERSEN',
+      dataCenterId: 'DC-JIOC-HAWAII',
+      status: DataLinkStatus.ACTIVE,
+      dataRateMbps: 1200,
+      latencyMs: 120,
+      description: '过境时间窗内向第一/第二岛链战区情报网注入遥感/通信数据',
+      createdAt: new Date().toISOString()
+    }
+  }
 
-  // 匹配数据链路中 sourceSatelliteId 为当前卫星的链路
   const match = dataLinks.value.find((l) => l.sourceSatelliteId === sat.id)
   if (match) return match
 
-  // 若无直接记录，提供兜底安全链路模型
+  const isRelayNeeded = sat.telemetry.altitude > 800 || sat.name.includes('锁眼') || sat.name.includes('USA-326')
   return {
     id: `DL-AUTO-${sat.id}`,
     name: `${sat.name.split(' ')[0]} 战区战术回传综合链路`,
-    topologyType: sat.telemetry.altitude > 1000 ? ('RELAY' as any) : ('DIRECT' as any),
+    topologyType: isRelayNeeded ? DataLinkTopologyType.RELAY : DataLinkTopologyType.DIRECT,
     sourceSatelliteId: sat.id,
-    relaySatelliteId: sat.telemetry.altitude > 1000 ? 'SAT-TDRS-13' : undefined,
-    groundStationId: 'GS-GUAM-ANDERSEN',
-    dataCenterId: 'DC-JIOC-HAWAII',
-    status: 'ACTIVE' as any,
-    dataRateMbps: 1200,
-    latencyMs: sat.linkLatencyMs ?? 110,
-    description: `${sat.name} 过境可见时间窗内向第一/第二岛链战区情报网注入遥感/通信数据`,
+    relaySatelliteId: isRelayNeeded ? 'SAT-TDRS-11' : undefined,
+    groundStationId: isRelayNeeded ? 'GS-PINE-GAP' : 'GS-GUAM-ANDERSEN',
+    dataCenterId: isRelayNeeded ? 'DC-SCHRIEVER-AFB' : 'DC-JIOC-HAWAII',
+    status: sat.status === OperationalStatus.OFFLINE ? DataLinkStatus.JAMMED : DataLinkStatus.ACTIVE,
+    dataRateMbps: isRelayNeeded ? 850 : 1200,
+    latencyMs: sat.linkLatencyMs ?? 125,
+    description: `${sat.name} 过境可见时间窗内向战区情报网注入遥感数据`,
     createdAt: new Date().toISOString()
   }
 })
 
 /**
- * 当前链路所途经的地面站对象
+ * 4 颗核心展示的侦察卫星节点 (对应图一 Level 1)
  */
-const activeGroundStation = computed(() => {
-  if (!activeDataLink.value) return null
-  return groundStations.value.find((g) => g.id === activeDataLink.value?.groundStationId) || groundStations.value[0]
+const satelliteNodes = computed(() => {
+  const defaults = [
+    { id: 'SAT-USA-290', code: 'USA-290 (KH-11)', alias: 'CAPELLA-11', fullName: 'USA-290 (KH-11 锁眼光学侦察星)', x: 190, y: 70 },
+    { id: 'SAT-WORLDVIEW-3', code: 'WorldView-3', alias: 'CAPELLA-14', fullName: 'WorldView-3 (世景三号高分商遥)', x: 390, y: 70 },
+    { id: 'SAT-USA-326', code: 'USA-326 (SAR)', alias: 'CAPELLA-13', fullName: 'USA-326 (FIA-Radar 秘密雷达侦察星)', x: 610, y: 70 },
+    { id: 'SAT-STARSHIELD-01', code: 'Starshield-01', alias: 'CAPELLA-15', fullName: 'Starshield-01 (SpaceX 军用星盾)', x: 830, y: 70 }
+  ]
+  return defaults
 })
 
 /**
- * 当前链路所途经的中继卫星对象 (若有)
+ * 中继卫星节点 (对应图二 Level 2)
  */
-const activeRelaySatellite = computed(() => {
-  if (!activeDataLink.value?.relaySatelliteId) return null
-  return satellites.value.find((s) => s.id === activeDataLink.value?.relaySatelliteId) || null
-})
+const relayNode = {
+  id: 'SAT-TDRS-11',
+  code: 'TDRS-11',
+  fullName: 'TDRS-11 (NASA/USSF 战略数据中继星)',
+  x: 500,
+  y: 175
+}
 
 /**
- * 当前链路终点数据中心对象
+ * 12 个地面接收站节点 (对应图二 Level 3)
  */
-const activeDataCenter = computed(() => {
-  if (!activeDataLink.value) return null
-  return dataCenters.value.find((d) => d.id === activeDataLink.value?.dataCenterId) || dataCenters.value[0]
-})
-
-/**
- * 四层静态定义元数据 (用于底部结构卡片)
- */
-const topologyLayers = [
-  {
-    layerIndex: 1,
-    title: '第一层: 目标卫星',
-    subtitle: '源端在轨天基观测与通信节点',
-    color: '#ef4444',
-    nodes: [
-      { id: 'SAT-USA-290', name: 'USA-290 锁眼', desc: 'LEO 402km 光学侦察' },
-      { id: 'SAT-WORLDVIEW-3', name: 'WorldView-3', desc: 'LEO 617km 商用高分' },
-      { id: 'SAT-STARSHIELD-01', name: 'Starshield-01', desc: 'LEO 550km 星盾军用' },
-      { id: 'SAT-STARLINK-30128', name: 'Starlink-30128', desc: 'LEO 540km 星链宽带' },
-      { id: 'SAT-USA-326', name: 'USA-326 秘密雷达', desc: 'LEO 512km 合成孔径雷达' }
-    ]
-  },
-  {
-    layerIndex: 2,
-    title: '第二层: 中继卫星',
-    subtitle: '天基高速星间激光/微波中继',
-    color: '#00f0ff',
-    nodes: [
-      { id: 'SAT-TDRS-13', name: 'TDRS-13 跟踪中继', desc: 'GEO 35786km 双Ka天线' }
-    ]
-  },
-  {
-    layerIndex: 3,
-    title: '第三层: 敌方地面站',
-    subtitle: '深空高增益抛物面接收阵列',
-    color: '#3b82f6',
-    nodes: [
-      { id: 'GS-PINE-GAP', name: '松树谷地面站 (澳)', desc: '32米天线 / X+Ka频段' },
-      { id: 'GS-GUAM-ANDERSEN', name: '关岛安德森站', desc: '18米天线 / 西太前哨' },
-      { id: 'GS-MISAWA-JAPAN', name: '三泽空军站 (日)', desc: '15米天线 / Ka频段' }
-    ]
-  },
-  {
-    layerIndex: 4,
-    title: '第四层: 数据中心',
-    subtitle: '战区与战略联合情报超算枢纽',
-    color: '#a855f7',
-    nodes: [
-      { id: 'DC-JIOC-HAWAII', name: '夏威夷印太联情中心', desc: '450 PFLOPS 绝密超算' },
-      { id: 'DC-SCHRIEVER-AFB', name: '施里弗天基作战中枢', desc: '600 PFLOPS 抗核加固' },
-      { id: 'DC-CAMP-COURTNEY', name: '冲绳边缘战术微云', desc: '80 PFLOPS 前沿微云' }
-    ]
-  }
+const groundStationNodes = [
+  { id: 'GS-1', name: '美国蒙大拿', x: 70, y: 320, window: '+0.0 分钟', activeFor: ['SAT-USA-290', 'SAT-STARSHIELD-01'] },
+  { id: 'GS-2', name: '加拿大伊努维克', x: 148, y: 320, window: '+8.2 分钟', activeFor: ['SAT-USA-290', 'SAT-WORLDVIEW-3'] },
+  { id: 'GS-3', name: '新西兰阿瓦鲁阿', x: 226, y: 320, window: '+19.3 分钟', activeFor: ['SAT-WORLDVIEW-3', 'SAT-USA-326'] },
+  { id: 'GS-4', name: '智利蓬塔阿雷纳斯', x: 304, y: 320, window: '+31.6 分钟', activeFor: ['SAT-USA-290', 'SAT-USA-326'] },
+  { id: 'GS-5', name: '爱尔兰Ireland', x: 382, y: 320, window: '+41.6 分钟', activeFor: ['SAT-STARSHIELD-01'] },
+  { id: 'GS-6', name: '澳大利亚达尔文', x: 460, y: 320, window: '+339.6 分钟', activeFor: ['SAT-USA-290', 'SAT-WORLDVIEW-3'] },
+  { id: 'GS-7', name: '南极TrollSat', x: 538, y: 320, window: '+45.1 分钟', activeFor: ['SAT-USA-290', 'SAT-WORLDVIEW-3'] },
+  { id: 'GS-8', name: '加州特拉西', x: 616, y: 320, window: '+2.7 分钟', activeFor: ['SAT-STARSHIELD-01', 'SAT-USA-326'] },
+  { id: 'GS-9', name: '俄勒冈Oregon', x: 694, y: 320, window: '+0.4 分钟', activeFor: ['SAT-USA-290'] },
+  { id: 'GS-10', name: '夏威夷Kapolei', x: 772, y: 320, window: '+52.5 分钟', activeFor: ['SAT-WORLDVIEW-3', 'SAT-STARSHIELD-01'] },
+  { id: 'GS-11', name: '斯瓦尔巴SvalSat', x: 850, y: 320, window: '+30.7 分钟', activeFor: ['SAT-USA-326'] },
+  { id: 'GS-12', name: '南非开普敦', x: 928, y: 320, window: '-161.4 分钟', activeFor: ['SAT-USA-290'] }
 ]
 
 /**
- * 点击候选卫星卡片，切换当前选中的卫星链路
- *
- * @param satId - 卫星 ID
+ * 数据中心节点 (对应图二 Level 4)
+ */
+const dataCenterNode = {
+  id: 'DC-AWS',
+  name: '亚马逊AWS北美云集群',
+  fullName: '亚马逊AWS北美云集群 / 施里弗作战数据处理中心',
+  x: 500,
+  y: 440
+}
+
+/**
+ * 判断某地面站是否属于当前选中卫星的高亮连线
+ */
+function isStationActiveForCurrentSat(gs: typeof groundStationNodes[0]): boolean {
+  if (topologyDisplayMode.value === 'ALL') return true
+  const curSatId = currentSelectedSatellite.value?.id || 'SAT-USA-290'
+  return gs.activeFor.includes(curSatId)
+}
+
+/**
+ * 判断某侦察卫星是否为当前选中
+ */
+function isSatActive(satId: string): boolean {
+  return currentSelectedSatellite.value?.id === satId
+}
+
+/**
+ * 点击切换选中卫星
  */
 function handleSelectSatellite(satId: string): void {
   selectTopologySatellite(satId)
 }
-
-/**
- * 初始化 AntV/G6 图实例并挂载
- */
-async function initG6Graph(): Promise<void> {
-  await nextTick()
-  if (!g6Container.value) return
-
-  const container = g6Container.value
-  const width = container.clientWidth || 800
-  const height = 260
-
-  // 销毁旧实例
-  if (graphInstance) {
-    graphInstance.destroy()
-    graphInstance = null
-  }
-
-  const g6Nodes: any[] = []
-  const g6Edges: any[] = []
-
-  if (topologyDisplayMode.value === 'SINGLE') {
-    // ----------------- 单星专属链路模式 -----------------
-    const sat = currentSelectedSatellite.value
-    const link = activeDataLink.value
-    const relay = activeRelaySatellite.value
-    const gs = activeGroundStation.value
-    const dc = activeDataCenter.value
-
-    if (sat && link) {
-      // 1. 源卫星节点
-      g6Nodes.push({
-        id: sat.id,
-        data: {
-          label: sat.name.split(' ')[0],
-          sub: `${sat.orbitType} · ${sat.telemetry.altitude.toFixed(0)}km`,
-          color: '#ef4444'
-        },
-        style: {
-          x: width * 0.14,
-          y: height * 0.5,
-          size: [140, 42]
-        }
-      })
-
-      // 2. 中继层节点
-      if (relay) {
-        g6Nodes.push({
-          id: relay.id,
-          data: {
-            label: relay.name.split(' ')[0],
-            sub: 'GEO 35786km 中继',
-            color: '#00f0ff'
-          },
-          style: {
-            x: width * 0.38,
-            y: height * 0.5,
-            size: [140, 42]
-          }
-        })
-
-        // 源星 -> 中继星边
-        g6Edges.push({
-          id: `e-${sat.id}-${relay.id}`,
-          source: sat.id,
-          target: relay.id,
-          data: { label: `星间微波 ${link.dataRateMbps}Mbps` }
-        })
-
-        // 中继星 -> 地面站边
-        if (gs) {
-          g6Edges.push({
-            id: `e-${relay.id}-${gs.id}`,
-            source: relay.id,
-            target: gs.id,
-            data: { label: `Ka频段下传 (${link.latencyMs}ms)` }
-          })
-        }
-      } else {
-        // 无中继直连：源星 -> 地面站直接连线
-        if (gs) {
-          g6Edges.push({
-            id: `e-${sat.id}-${gs.id}`,
-            source: sat.id,
-            target: gs.id,
-            data: { label: `直连下传 ${link.dataRateMbps}Mbps (${link.latencyMs}ms)` }
-          })
-        }
-      }
-
-      // 3. 地面站节点
-      if (gs) {
-        g6Nodes.push({
-          id: gs.id,
-          data: {
-            label: gs.name.slice(0, 8),
-            sub: `${gs.antennaDiameterM}m 阵列`,
-            color: '#3b82f6'
-          },
-          style: {
-            x: width * 0.64,
-            y: height * 0.5,
-            size: [140, 42]
-          }
-        })
-
-        // 4. 数据中心节点与边
-        if (dc) {
-          g6Nodes.push({
-            id: dc.id,
-            data: {
-              label: dc.name.slice(0, 8),
-              sub: dc.securityLevel || '情报中枢',
-              color: '#a855f7'
-            },
-            style: {
-              x: width * 0.88,
-              y: height * 0.5,
-              size: [140, 42]
-            }
-          })
-
-          g6Edges.push({
-            id: `e-${gs.id}-${dc.id}`,
-            source: gs.id,
-            target: dc.id,
-            data: { label: '国防专网光缆 (25ms)' }
-          })
-        }
-      }
-    }
-  } else {
-    // ----------------- 全网四层拓扑总览模式 -----------------
-    const layerXPositions = [width * 0.12, width * 0.38, width * 0.64, width * 0.88]
-
-    topologyLayers.forEach((layer, lIdx) => {
-      const totalInLayer = layer.nodes.length
-      const x = layerXPositions[lIdx]
-
-      layer.nodes.forEach((node, nIdx) => {
-        const ySpacing = height / (totalInLayer + 1)
-        const y = ySpacing * (nIdx + 1)
-
-        const isCurrentActive =
-          node.id === currentSelectedSatellite.value?.id ||
-          node.id === activeRelaySatellite.value?.id ||
-          node.id === activeGroundStation.value?.id ||
-          node.id === activeDataCenter.value?.id
-
-        g6Nodes.push({
-          id: node.id,
-          data: {
-            label: node.name,
-            sub: node.desc,
-            layer: layer.layerIndex,
-            color: isCurrentActive ? layer.color : '#475569',
-            active: isCurrentActive
-          },
-          style: {
-            x,
-            y,
-            size: [120, 36]
-          }
-        })
-      })
-    })
-
-    // 全量网络边定义
-    const allEdges = [
-      { id: 'e-wv3-guam', source: 'SAT-WORLDVIEW-3', target: 'GS-GUAM-ANDERSEN', data: { label: '直传 1200Mbps', satId: 'SAT-WORLDVIEW-3' } },
-      { id: 'e-guam-hawaii', source: 'GS-GUAM-ANDERSEN', target: 'DC-JIOC-HAWAII', data: { label: '海底光纤', satId: 'SAT-WORLDVIEW-3' } },
-      { id: 'e-kh-tdrs', source: 'SAT-USA-290', target: 'SAT-TDRS-13', data: { label: '星间中继 850Mbps', satId: 'SAT-USA-290' } },
-      { id: 'e-tdrs-pine', source: 'SAT-TDRS-13', target: 'GS-PINE-GAP', data: { label: 'Ka频段下行', satId: 'SAT-USA-290' } },
-      { id: 'e-pine-schriever', source: 'GS-PINE-GAP', target: 'DC-SCHRIEVER-AFB', data: { label: '国防专网', satId: 'SAT-USA-290' } },
-      { id: 'e-starlink-misawa', source: 'SAT-STARLINK-30128', target: 'GS-MISAWA-JAPAN', data: { label: 'Ku下行(干扰)', satId: 'SAT-STARLINK-30128' } },
-      { id: 'e-misawa-courtney', source: 'GS-MISAWA-JAPAN', target: 'DC-CAMP-COURTNEY', data: { label: '第一岛链干线', satId: 'SAT-STARLINK-30128' } },
-      { id: 'e-starshield-guam', source: 'SAT-STARSHIELD-01', target: 'GS-GUAM-ANDERSEN', data: { label: '星盾加密', satId: 'SAT-STARSHIELD-01' } },
-      { id: 'e-u326-tdrs', source: 'SAT-USA-326', target: 'SAT-TDRS-13', data: { label: '雷达中继', satId: 'SAT-USA-326' } }
-    ]
-
-    allEdges.forEach((edge) => {
-      const isEdgeActive = edge.data?.satId === currentSelectedSatellite.value?.id
-      g6Edges.push({
-        ...edge,
-        data: {
-          ...edge.data,
-          active: isEdgeActive
-        }
-      })
-    })
-  }
-
-  try {
-    graphInstance = new Graph({
-      container,
-      width,
-      height,
-      autoFit: 'view',
-      data: {
-        nodes: g6Nodes,
-        edges: g6Edges
-      },
-      node: {
-        type: 'rect',
-        style: {
-          radius: 4,
-          fill: '#0f172a',
-          stroke: (d: any) => d.data?.color || '#00f0ff',
-          lineWidth: (d: any) => (d.data?.active !== false ? 2 : 1),
-          labelText: (d: any) => `${d.data?.label || d.id}`,
-          labelFill: (d: any) => (d.data?.active !== false ? '#f1f5f9' : '#64748b'),
-          labelFontSize: 11,
-          labelFontFamily: 'monospace',
-          labelFontWeight: 'bold'
-        }
-      },
-      edge: {
-        type: 'line',
-        style: {
-          stroke: (d: any) => (d.data?.active !== false ? '#00f0ff' : '#334155'),
-          lineWidth: (d: any) => (d.data?.active !== false ? 2 : 1),
-          strokeOpacity: (d: any) => (d.data?.active !== false ? 0.9 : 0.4),
-          labelText: (d: any) => `${d.data?.label || ''}`,
-          labelFill: (d: any) => (d.data?.active !== false ? '#38bdf8' : '#475569'),
-          labelFontSize: 9,
-          labelFontFamily: 'monospace',
-          endArrow: true
-        }
-      },
-      behaviors: ['drag-canvas', 'zoom-canvas']
-    })
-
-    await graphInstance.render()
-  } catch (err) {
-    console.warn('G6 Canvas 初始化降级为高清军工拓扑视图:', err)
-  }
-}
-
-onMounted(() => {
-  initG6Graph()
-  window.addEventListener('resize', initG6Graph)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', initG6Graph)
-  if (graphInstance) {
-    graphInstance.destroy()
-    graphInstance = null
-  }
-})
-
-// 监听选中卫星、展示模式及门限变化，动态重绘拓扑
-watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshold], () => {
-  initG6Graph()
-})
 </script>
 
 <template>
@@ -444,14 +188,12 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
         </span>
       </div>
 
-      <!-- 核心物理公式面板 (真实排版数学公式) -->
+      <!-- 核心物理公式面板 -->
       <div class="p-3.5 sm:p-4 rounded bg-slate-950/80 border border-tactical-cyan/50 text-center space-y-2 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
         <div class="flex items-center justify-center flex-wrap gap-y-2 font-serif text-tactical-cyan text-base sm:text-xl font-bold tracking-normal select-text">
-          <!-- Δt_pass -->
           <span>Δ<i class="italic">t</i><sub class="text-xs font-sans">过境</sub></span>
           <span class="mx-2 text-slate-300 font-sans">=</span>
 
-          <!-- (2 Re) / v_sat -->
           <span class="inline-flex flex-col items-center justify-center text-xs sm:text-sm align-middle">
             <span class="border-b border-tactical-cyan/60 px-1.5 pb-0.5 leading-none">
               2 <i class="italic">R</i><sub class="text-[10px] font-sans">e</sub>
@@ -463,7 +205,6 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
 
           <span class="mx-1.5 text-slate-400">·</span>
 
-          <!-- arccos( (Re * cos ε_min) / (Re + H) ) -->
           <span class="font-sans font-normal text-slate-200 text-sm sm:text-base">arccos</span>
           <span class="inline-flex items-center">
             <span class="text-2xl font-light text-slate-400 mr-0.5">(</span>
@@ -492,8 +233,7 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
       <div class="mt-2.5 p-2.5 rounded bg-tactical-bg/80 border border-tactical-border/60 text-[10px] text-tactical-text leading-relaxed">
         <div class="text-amber-400 font-bold mb-0.5">★ 空间链路薄弱点分析:</div>
         低轨 (LEO) 卫星过境时间极短 (通常仅 <span class="text-cyan-300 font-bold">400秒 ~ 600秒</span>)，对地面站通信为高突发、强脉冲下传；
-        若其无法直连第一岛链地面站，则必须依赖 <span class="text-cyan-300 font-bold">TDRS-13</span> 等静止轨中继星构建跨洋转发链路。
-        在过境窗口期实施动能阻击或高功率干扰，可使敌方战场侦察情报出现不可逆的时效断裂。
+        若其无法直连第一岛链地面站，则必须依赖 <span class="text-cyan-300 font-bold">TDRS-11 / 13</span> 等静止轨中继星构建跨洋转发链路，最终接入后方云集群与数据中心。
       </div>
     </div>
 
@@ -526,30 +266,30 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
       </div>
     </div>
 
-    <!-- 3. 筛选出的短过境时长卫星结果（【核心交互】：点击任意卡片即可切换下方展示链路） -->
+    <!-- 3. 筛选出的候选卫星列表 (点击切换拓扑聚焦目标) -->
     <div class="p-3.5 rounded bg-tactical-dark/70 border border-tactical-border/80">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-2">
           <CheckCircle2 class="w-4 h-4 text-tactical-green" />
           <h3 class="text-xs font-bold tracking-wider text-tactical-text">
-            过境时长筛选结果 (共 {{ step2Candidates.length }} 颗候选卫星 · 点击任意卫星切换链路拓扑)
+            过境时长筛选结果 (共 {{ step2Candidates.length }} 颗候选卫星 · 点击任意卫星切换下方拓扑图)
           </h3>
         </div>
         <span class="text-[10px] text-tactical-cyan font-bold flex items-center gap-1">
           <Sparkles class="w-3.5 h-3.5 animate-pulse" />
-          <span>点击卡片联动下方拓扑</span>
+          <span>点击联动下方拓扑图</span>
         </span>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2.5">
         <div
           v-for="sat in step2Candidates"
           :key="sat.id"
           @click="handleSelectSatellite(sat.id)"
           :class="[
             'p-2.5 rounded transition-all cursor-pointer relative',
-            selectedTopologySatelliteId === sat.id
-              ? 'bg-cyan-950/80 border-2 border-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.45)] ring-1 ring-cyan-300 scale-[1.02]'
+            currentSelectedSatellite.id === sat.id
+              ? 'bg-cyan-950/90 border-2 border-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.45)] ring-1 ring-cyan-300 scale-[1.02]'
               : 'bg-tactical-bg/90 border border-tactical-border/80 hover:border-cyan-400/80 hover:bg-slate-900/60'
           ]"
         >
@@ -558,7 +298,7 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
             <span
               :class="[
                 'text-[9px] px-1.5 py-0.5 rounded font-bold border',
-                selectedTopologySatelliteId === sat.id
+                currentSelectedSatellite.id === sat.id
                   ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-black'
                   : 'bg-cyan-900/40 text-cyan-300 border-cyan-500/40'
               ]"
@@ -573,29 +313,29 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
           </div>
 
           <div class="mt-2 flex items-center justify-between text-[9px] text-tactical-muted pt-1.5 border-t border-tactical-border/40">
-            <span>链路时延: <strong class="text-cyan-300">{{ sat.linkLatencyMs }}ms</strong></span>
+            <span>延迟: <strong class="text-cyan-300">{{ sat.linkLatencyMs }}ms</strong></span>
             <span
-              v-if="selectedTopologySatelliteId === sat.id"
+              v-if="currentSelectedSatellite.id === sat.id"
               class="text-cyan-300 font-black flex items-center gap-1"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
-              <span>当前选定链路 ✓</span>
+              <span>当前选定 ✓</span>
             </span>
-            <span v-else class="text-slate-500">点击查看链路 →</span>
+            <span v-else class="text-slate-500">点击查看拓扑 →</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 4. 【核心展示区】当前选中卫星专属四层空间数据链路全景看板与拓扑图 -->
-    <div class="p-3.5 rounded bg-tactical-dark/70 border border-tactical-cyan/40 shadow-tactical-panel space-y-3">
-      <!-- 拓扑头部：聚焦状态与视图模式切换 -->
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-tactical-border/60 pb-2.5">
+    <!-- 4. 【核心拓扑图】四层立体空间数据链路拓扑图 (AntV/G6 风格层级图谱) -->
+    <div class="p-3.5 rounded bg-tactical-dark/80 border border-tactical-cyan/50 shadow-tactical-panel space-y-3">
+      <!-- 拓扑头部控制栏 -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-tactical-border/70 pb-2.5">
         <div class="flex items-center gap-2">
           <Network class="w-4 h-4 text-tactical-cyan animate-pulse" />
           <div class="flex items-center gap-2">
-            <h3 class="text-xs font-bold tracking-wider text-tactical-text uppercase">
-              四层立体空间数据链路拓扑
+            <h3 class="text-xs sm:text-sm font-black tracking-wider text-tactical-text uppercase">
+              四层立体空间数据链路拓扑图
             </h3>
             <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-400/60 text-[10px] font-bold">
               当前目标: {{ currentSelectedSatellite?.name }}
@@ -608,175 +348,383 @@ watch([selectedTopologySatelliteId, topologyDisplayMode, maxLinkDurationThreshol
           <button
             @click="topologyDisplayMode = 'SINGLE'"
             :class="[
-              'px-2.5 py-1 rounded text-[10px] font-bold transition-all border',
+              'px-3 py-1 rounded text-[10px] font-bold transition-all border flex items-center gap-1',
               topologyDisplayMode === 'SINGLE'
-                ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
                 : 'bg-slate-900 border-tactical-border text-tactical-muted hover:text-tactical-text'
             ]"
           >
-            单星专属链路
+            <span>单星专属链路高亮</span>
           </button>
           <button
             @click="topologyDisplayMode = 'ALL'"
             :class="[
-              'px-2.5 py-1 rounded text-[10px] font-bold transition-all border',
+              'px-3 py-1 rounded text-[10px] font-bold transition-all border flex items-center gap-1',
               topologyDisplayMode === 'ALL'
-                ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
                 : 'bg-slate-900 border-tactical-border text-tactical-muted hover:text-tactical-text'
             ]"
           >
-            全网链路总览
+            <span>全网四层链路总览</span>
           </button>
         </div>
       </div>
 
-      <!-- 专属四层传输路径管道条 (清晰呈现该星完整路径流程) -->
-      <div
-        v-if="currentSelectedSatellite && activeDataLink"
-        class="p-3 rounded bg-slate-950/90 border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
-      >
-        <div class="flex items-center justify-between text-[10px] mb-2 text-slate-400">
-          <div class="flex items-center gap-2">
-            <Share2 class="w-3.5 h-3.5 text-cyan-400" />
-            <span class="font-bold text-slate-200">{{ activeDataLink.name }}</span>
-          </div>
-          <div class="flex items-center gap-3">
-            <span>拓扑架构: <strong class="text-cyan-300">{{ activeDataLink.topologyType === 'RELAY' ? '天基星间中继' : '地面站直传' }}</strong></span>
-            <span>传输速率: <strong class="text-amber-400">{{ activeDataLink.dataRateMbps }} Mbps</strong></span>
-            <span>链路时延: <strong class="text-emerald-400">{{ activeDataLink.latencyMs }} ms</strong></span>
-          </div>
-        </div>
-
-        <!-- 4-Stage 可视化链路流水线节点卡片 -->
-        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 text-[10px]">
-          <!-- 阶段 1: 目标卫星 -->
-          <div class="p-2 rounded bg-slate-900/90 border border-red-500/50 relative overflow-hidden">
-            <div class="text-[9px] text-red-400 font-bold flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
-              <span>第一层: 源目标卫星</span>
-            </div>
-            <div class="text-xs font-bold text-slate-100 mt-1 truncate">
-              {{ currentSelectedSatellite.name }}
-            </div>
-            <div class="text-[9px] text-slate-400 mt-0.5">
-              {{ currentSelectedSatellite.orbitType }} · {{ currentSelectedSatellite.telemetry.altitude.toFixed(0) }}km
-            </div>
+      <!-- 核心画布容器 (左侧 4 层标识胶囊 + 右侧层级拓扑 Graph) -->
+      <div class="flex flex-col lg:flex-row gap-2 bg-[#040a16] border border-slate-800 rounded-lg p-3 relative overflow-hidden shadow-[inset_0_0_25px_rgba(0,0,0,0.9)]">
+        <!-- 左侧层级标识立柱 (对应图二左侧 4 个层级胶囊) -->
+        <div class="w-full lg:w-36 flex lg:flex-col justify-between py-4 lg:py-6 shrink-0 gap-2 font-mono">
+          <!-- 胶囊 1: 侦察卫星 (Y ~ 70) -->
+          <div class="flex-1 lg:flex-initial px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700/80 text-cyan-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+            <Radio class="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>侦察卫星</span>
           </div>
 
-          <!-- 阶段 2: 中继卫星 -->
-          <div
-            :class="[
-              'p-2 rounded border relative overflow-hidden',
-              activeRelaySatellite
-                ? 'bg-slate-900/90 border-cyan-500/50 text-cyan-300'
-                : 'bg-slate-900/50 border-slate-700/60 text-slate-500'
-            ]"
-          >
-            <div class="text-[9px] font-bold flex items-center gap-1">
-              <span
-                class="w-1.5 h-1.5 rounded-full"
-                :class="activeRelaySatellite ? 'bg-cyan-400' : 'bg-slate-600'"
-              ></span>
-              <span>第二层: 空间中继星</span>
-            </div>
-            <div class="text-xs font-bold text-slate-100 mt-1 truncate">
-              {{ activeRelaySatellite ? activeRelaySatellite.name : '直连地面免中继' }}
-            </div>
-            <div class="text-[9px] text-slate-400 mt-0.5">
-              {{ activeRelaySatellite ? 'GEO 35786km 双Ka天线' : '地面可见角直传第一岛链' }}
-            </div>
+          <!-- 胶囊 2: 中继卫星 (Y ~ 175) -->
+          <div class="flex-1 lg:flex-initial px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700/80 text-cyan-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+            <SatelliteIcon class="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>中继卫星</span>
           </div>
 
-          <!-- 阶段 3: 敌方地面站 -->
-          <div class="p-2 rounded bg-slate-900/90 border border-blue-500/50 relative overflow-hidden">
-            <div class="text-[9px] text-blue-400 font-bold flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-              <span>第三层: 地面接收站</span>
-            </div>
-            <div class="text-xs font-bold text-slate-100 mt-1 truncate">
-              {{ activeGroundStation?.name || '关岛安德森地面站' }}
-            </div>
-            <div class="text-[9px] text-slate-400 mt-0.5">
-              {{ activeGroundStation?.country || '西太战区' }} · {{ activeGroundStation?.antennaDiameterM || 18 }}m 阵列
-            </div>
+          <!-- 胶囊 3: 地面接收站 (Y ~ 320) -->
+          <div class="flex-1 lg:flex-initial px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700/80 text-cyan-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+            <Wifi class="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>地面接收站</span>
           </div>
 
-          <!-- 阶段 4: 数据中心 -->
-          <div class="p-2 rounded bg-slate-900/90 border border-purple-500/50 relative overflow-hidden">
-            <div class="text-[9px] text-purple-400 font-bold flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
-              <span>第四层: 战略数据中心</span>
-            </div>
-            <div class="text-xs font-bold text-slate-100 mt-1 truncate">
-              {{ activeDataCenter?.name || '夏威夷印太联情中心' }}
-            </div>
-            <div class="text-[9px] text-slate-400 mt-0.5">
-              {{ activeDataCenter?.securityLevel || '绝密级' }} · 算力超算枢纽
-            </div>
+          <!-- 胶囊 4: 数据中心 (Y ~ 440) -->
+          <div class="flex-1 lg:flex-initial px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700/80 text-cyan-300 text-xs font-bold flex items-center gap-2 shadow-[0_0_10px_rgba(0,0,0,0.5)]">
+            <Server class="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>数据中心</span>
           </div>
         </div>
-      </div>
 
-      <!-- AntV/G6 动态 Canvas 挂载容器 -->
-      <div
-        ref="g6Container"
-        class="w-full h-[260px] rounded bg-[#070d1a] border border-tactical-border/80 overflow-hidden relative"
-      >
-        <!-- 拓扑交互提示水印 -->
-        <div class="absolute bottom-2 right-2 text-[9px] text-tactical-muted font-mono pointer-events-none bg-black/60 px-2 py-0.5 rounded border border-tactical-border/40">
-          支持鼠标拖拽平移与滚轮缩放画布
-        </div>
-      </div>
-
-      <!-- 四层链路结构说明表格卡片 -->
-      <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        <div
-          v-for="layer in topologyLayers"
-          :key="layer.layerIndex"
-          class="p-2.5 rounded bg-tactical-bg/90 border border-tactical-border"
-        >
-          <div class="flex items-center gap-1.5 mb-1">
-            <span
-              class="w-2 h-2 rounded-full"
-              :style="{ backgroundColor: layer.color }"
-            ></span>
-            <span class="text-xs font-bold text-tactical-text">{{ layer.title }}</span>
+        <!-- 右侧拓扑图画板 (精确对应图二的节点样式与连线形态) -->
+        <div class="flex-1 min-w-0 relative">
+          <!-- 顶部节点统计状态 -->
+          <div class="flex items-center gap-4 text-xs font-mono mb-1 px-1">
+            <span class="text-cyan-400 flex items-center gap-1.5 font-bold">
+              <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+              卫星节点: {{ satelliteNodes.length }} 颗
+            </span>
+            <span class="text-cyan-400 flex items-center gap-1.5 font-bold">
+              <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+              地面站节点: {{ groundStationNodes.length }} 个
+            </span>
+            <span class="text-blue-400 flex items-center gap-1.5 font-bold">
+              <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+              数据中心: 1 个
+            </span>
           </div>
-          <p class="text-[9px] text-tactical-muted mb-2">{{ layer.subtitle }}</p>
 
-          <div class="space-y-1">
-            <div
-              v-for="item in layer.nodes"
-              :key="item.id"
-              :class="[
-                'p-1.5 rounded border text-[9px] transition-all',
-                item.id === currentSelectedSatellite?.id ||
-                item.id === activeRelaySatellite?.id ||
-                item.id === activeGroundStation?.id ||
-                item.id === activeDataCenter?.id
-                  ? 'bg-cyan-950/50 border-cyan-400 font-bold text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.3)]'
-                  : 'bg-tactical-dark/60 border-tactical-border/40 text-tactical-muted'
-              ]"
+          <!-- SVG 拓扑网络图谱 -->
+          <div class="w-full h-[500px] overflow-hidden relative">
+            <svg
+              viewBox="0 0 1000 500"
+              class="w-full h-full select-none"
+              preserveAspectRatio="xMidYMid meet"
             >
-              <div class="flex items-center justify-between">
-                <span>{{ item.name }}</span>
-                <span
-                  v-if="
-                    item.id === currentSelectedSatellite?.id ||
-                    item.id === activeRelaySatellite?.id ||
-                    item.id === activeGroundStation?.id ||
-                    item.id === activeDataCenter?.id
-                  "
-                  class="text-cyan-400 font-bold"
+              <defs>
+                <!-- 红色光晕 -->
+                <filter id="red-glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <!-- 青色光晕 -->
+                <filter id="cyan-glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <!-- 蓝色光晕 -->
+                <filter id="blue-glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="3" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              <!-- ================= 1. 连线层：卫星 -> 中继卫星 (Level 1 -> Level 2) ================= -->
+              <g class="sat-to-relay-edges">
+                <template v-for="sat in satelliteNodes" :key="'e-sat-' + sat.id">
+                  <!-- 连线路径 -->
+                  <path
+                    :d="`M ${sat.x} 78 C ${sat.x} 125, ${relayNode.x} 125, ${relayNode.x} 163`"
+                    fill="none"
+                    :stroke="isSatActive(sat.id) ? '#00f0ff' : '#94a3b8'"
+                    :stroke-width="isSatActive(sat.id) ? 2.5 : 1.2"
+                    :stroke-dasharray="isSatActive(sat.id) ? '6, 6' : '4, 4'"
+                    :stroke-opacity="isSatActive(sat.id) ? 0.95 : 0.35"
+                    :class="{ 'animate-flow-dash': isSatActive(sat.id) }"
+                  />
+                  <!-- 高亮流动光子包 -->
+                  <circle
+                    v-if="isSatActive(sat.id)"
+                    r="3.5"
+                    fill="#00f0ff"
+                    filter="url(#cyan-glow)"
+                  >
+                    <animateMotion
+                      :path="`M ${sat.x} 78 C ${sat.x} 125, ${relayNode.x} 125, ${relayNode.x} 163`"
+                      dur="1.5s"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                </template>
+              </g>
+
+              <!-- ================= 2. 连线层：中继卫星 -> 12 个地面站 (Level 2 -> Level 3) ================= -->
+              <g class="relay-to-gs-edges">
+                <template v-for="gs in groundStationNodes" :key="'e-relay-' + gs.id">
+                  <!-- 连线路径 (呈优雅扇面展开) -->
+                  <path
+                    :d="`M ${relayNode.x} 187 C ${relayNode.x} 250, ${gs.x} 250, ${gs.x} 310`"
+                    fill="none"
+                    :stroke="isStationActiveForCurrentSat(gs) ? '#00f0ff' : '#64748b'"
+                    :stroke-width="isStationActiveForCurrentSat(gs) ? 2 : 1"
+                    :stroke-dasharray="isStationActiveForCurrentSat(gs) ? '6, 6' : '3, 3'"
+                    :stroke-opacity="isStationActiveForCurrentSat(gs) ? 0.9 : 0.25"
+                    :class="{ 'animate-flow-dash': isStationActiveForCurrentSat(gs) }"
+                  />
+                  <!-- 光流流动粒子 -->
+                  <circle
+                    v-if="isStationActiveForCurrentSat(gs) && topologyDisplayMode === 'SINGLE'"
+                    r="3"
+                    fill="#38bdf8"
+                    filter="url(#cyan-glow)"
+                  >
+                    <animateMotion
+                      :path="`M ${relayNode.x} 187 C ${relayNode.x} 250, ${gs.x} 250, ${gs.x} 310`"
+                      dur="1.8s"
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                </template>
+              </g>
+
+              <!-- ================= 3. 连线层：12 个地面站 -> 数据中心 (Level 3 -> Level 4) ================= -->
+              <g class="gs-to-dc-edges">
+                <template v-for="gs in groundStationNodes" :key="'e-dc-' + gs.id">
+                  <!-- 连线路径 (聚拢下行) -->
+                  <path
+                    :d="`M ${gs.x} 360 C ${gs.x} 405, ${dataCenterNode.x} 405, ${dataCenterNode.x} 432`"
+                    fill="none"
+                    :stroke="isStationActiveForCurrentSat(gs) ? '#38bdf8' : '#475569'"
+                    :stroke-width="isStationActiveForCurrentSat(gs) ? 2 : 1"
+                    :stroke-dasharray="isStationActiveForCurrentSat(gs) ? '6, 6' : '3, 3'"
+                    :stroke-opacity="isStationActiveForCurrentSat(gs) ? 0.85 : 0.2"
+                    :class="{ 'animate-flow-dash': isStationActiveForCurrentSat(gs) }"
+                  />
+                </template>
+              </g>
+
+              <!-- ================= 4. Level 1 节点：侦察卫星 (红色圆环 ⭕) ================= -->
+              <g class="satellite-nodes">
+                <g
+                  v-for="sat in satelliteNodes"
+                  :key="sat.id"
+                  class="cursor-pointer group"
+                  @click="handleSelectSatellite(sat.id)"
                 >
-                  ● 途经
-                </span>
-              </div>
-              <div class="text-[8px] opacity-70">{{ item.desc }}</div>
-            </div>
+                  <!-- 外部呼吸光晕 -->
+                  <circle
+                    :cx="sat.x"
+                    :cy="sat.y"
+                    :r="isSatActive(sat.id) ? 17 : 14"
+                    fill="none"
+                    :stroke="isSatActive(sat.id) ? '#00f0ff' : '#ef4444'"
+                    :stroke-width="isSatActive(sat.id) ? 2.5 : 1.5"
+                    :stroke-opacity="isSatActive(sat.id) ? 0.9 : 0.4"
+                    :filter="isSatActive(sat.id) ? 'url(#cyan-glow)' : 'url(#red-glow)'"
+                  />
+                  <!-- 核心红色圆环 -->
+                  <circle
+                    :cx="sat.x"
+                    :cy="sat.y"
+                    r="10"
+                    fill="#040a16"
+                    :stroke="isSatActive(sat.id) ? '#00f0ff' : '#ef4444'"
+                    stroke-width="2.5"
+                  />
+                  <!-- 中心发光点 -->
+                  <circle
+                    :cx="sat.x"
+                    :cy="sat.y"
+                    r="4"
+                    :fill="isSatActive(sat.id) ? '#00f0ff' : '#ef4444'"
+                  />
+                  <!-- 文字标签 -->
+                  <text
+                    :x="sat.x"
+                    :y="sat.y + 26"
+                    text-anchor="middle"
+                    :fill="isSatActive(sat.id) ? '#00f0ff' : '#f8fafc'"
+                    font-size="11"
+                    font-weight="bold"
+                    font-family="monospace"
+                  >
+                    {{ sat.code }}
+                  </text>
+                  <text
+                    :x="sat.x"
+                    :y="sat.y + 38"
+                    text-anchor="middle"
+                    fill="#94a3b8"
+                    font-size="9"
+                    font-family="monospace"
+                  >
+                    {{ sat.alias }}
+                  </text>
+                </g>
+              </g>
+
+              <!-- ================= 5. Level 2 节点：中继卫星 (红色菱形 ◆) ================= -->
+              <g class="relay-node">
+                <!-- 菱形外发光 -->
+                <polygon
+                  :points="`${relayNode.x},${relayNode.y - 14} ${relayNode.x + 14},${relayNode.y} ${relayNode.x},${relayNode.y + 14} ${relayNode.x - 14},${relayNode.y}`"
+                  fill="#040a16"
+                  stroke="#ef4444"
+                  stroke-width="2.5"
+                  filter="url(#red-glow)"
+                />
+                <!-- 内部中心红点 -->
+                <circle
+                  :cx="relayNode.x"
+                  :cy="relayNode.y"
+                  r="3"
+                  fill="#ef4444"
+                />
+                <!-- 标签 -->
+                <text
+                  :x="relayNode.x"
+                  :y="relayNode.y + 26"
+                  text-anchor="middle"
+                  fill="#f8fafc"
+                  font-size="11"
+                  font-weight="bold"
+                  font-family="monospace"
+                >
+                  {{ relayNode.code }}
+                </text>
+              </g>
+
+              <!-- ================= 6. Level 3 节点：12 个地面接收站 (青色三角形 ▲) ================= -->
+              <g class="ground-station-nodes">
+                <g
+                  v-for="gs in groundStationNodes"
+                  :key="gs.id"
+                  class="cursor-pointer group"
+                >
+                  <!-- 三角形图标 -->
+                  <polygon
+                    :points="`${gs.x},${gs.y - 12} ${gs.x + 10},${gs.y + 8} ${gs.x - 10},${gs.y + 8}`"
+                    fill="#040a16"
+                    :stroke="isStationActiveForCurrentSat(gs) ? '#00f0ff' : '#475569'"
+                    :stroke-width="isStationActiveForCurrentSat(gs) ? 2.5 : 1.5"
+                    :filter="isStationActiveForCurrentSat(gs) ? 'url(#cyan-glow)' : 'none'"
+                  />
+                  <!-- 地面站中文名称 -->
+                  <text
+                    :x="gs.x"
+                    :y="gs.y + 22"
+                    text-anchor="middle"
+                    :fill="isStationActiveForCurrentSat(gs) ? '#f8fafc' : '#94a3b8'"
+                    font-size="9"
+                    font-weight="bold"
+                    font-family="sans-serif"
+                  >
+                    {{ gs.name }}
+                  </text>
+                  <!-- 窗口时间 -->
+                  <text
+                    :x="gs.x"
+                    :y="gs.y + 34"
+                    text-anchor="middle"
+                    :fill="isStationActiveForCurrentSat(gs) ? '#38bdf8' : '#64748b'"
+                    font-size="8"
+                    font-family="monospace"
+                  >
+                    {{ gs.window }}
+                  </text>
+                </g>
+              </g>
+
+              <!-- ================= 7. Level 4 节点：数据中心 (蓝色矩形 ■) ================= -->
+              <g class="data-center-node">
+                <!-- 方形图标 -->
+                <rect
+                  :x="dataCenterNode.x - 14"
+                  :y="dataCenterNode.y - 14"
+                  width="28"
+                  height="28"
+                  fill="#040a16"
+                  stroke="#3b82f6"
+                  stroke-width="2.5"
+                  rx="3"
+                  filter="url(#blue-glow)"
+                />
+                <rect
+                  :x="dataCenterNode.x - 6"
+                  :y="dataCenterNode.y - 6"
+                  width="12"
+                  height="12"
+                  fill="#3b82f6"
+                  opacity="0.8"
+                />
+                <!-- 标签 -->
+                <text
+                  :x="dataCenterNode.x"
+                  :y="dataCenterNode.y + 28"
+                  text-anchor="middle"
+                  fill="#f8fafc"
+                  font-size="11"
+                  font-weight="bold"
+                  font-family="sans-serif"
+                >
+                  {{ dataCenterNode.name }}
+                </text>
+              </g>
+            </svg>
           </div>
+        </div>
+      </div>
+
+      <!-- 底部当前选定链路的实时流水状态牌 -->
+      <div class="p-3 rounded bg-slate-950/90 border border-cyan-500/40 shadow-[0_0_15px_rgba(6,182,212,0.15)] flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div class="flex items-center gap-2">
+          <Zap class="w-4 h-4 text-cyan-400 animate-pulse" />
+          <span class="text-tactical-muted">当前聚焦链路:</span>
+          <span class="text-tactical-cyan font-bold font-mono">
+            {{ currentSelectedSatellite.name }} → TDRS-11/13 中继 → 地面测控阵列 → 亚马逊AWS北美云集群
+          </span>
+        </div>
+        <div class="flex items-center gap-4 text-tactical-muted text-[11px] font-mono">
+          <span>下行速率: <strong class="text-amber-400">{{ activeDataLink.dataRateMbps }} Mbps</strong></span>
+          <span>总时延: <strong class="text-emerald-400">{{ activeDataLink.latencyMs }} ms</strong></span>
+          <span class="text-cyan-300 font-bold">
+            状态: {{ activeDataLink.status === 'JAMMED' ? '受干扰压制' : '链路全通' }}
+          </span>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+@keyframes flowDash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.animate-flow-dash {
+  animation: flowDash 1.2s linear infinite;
+}
+</style>

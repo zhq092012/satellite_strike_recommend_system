@@ -256,6 +256,15 @@ export function useSatelliteState() {
   }
 
   /**
+   * 跳转/拖动至指定仿真推演秒数
+   *
+   * @param seconds - 目标秒数 (0 - 86400)
+   */
+  function seekSimulationTime(seconds: number): void {
+    elapsedSimulationSeconds.value = Math.max(0, seconds)
+  }
+
+  /**
    * 确认或消除指定战术告警事件
    *
    * @param alertId - 告警流水号
@@ -328,6 +337,7 @@ export function useSatelliteState() {
     setTimeMultiplier,
     togglePlayPause,
     resetSimulationTime,
+    seekSimulationTime,
     acknowledgeAlert,
     setDefconLevel,
     updateCursorCoordinates,
