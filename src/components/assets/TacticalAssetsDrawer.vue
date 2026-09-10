@@ -48,6 +48,7 @@ const {
   selectedDataLinkId,
   isAssetDrawerOpen,
   isCreateWeaponModalOpen,
+  openDeployWeaponModal,
   isCreateGroundStationModalOpen,
   isCreateDataCenterModalOpen,
   isCreateDataLinkModalOpen,
@@ -233,10 +234,15 @@ function getLinkNodeNames(link: DataLink): {
  */
 function handleFlyToWeapon(wpn: WeaponSystem): void {
   selectedWeaponId.value = wpn.id
+  if (!wpn.isDeployed || !wpn.position) {
+    showToast(`武器【${wpn.name}】尚未部署阵地，已为您打开阵地部署`)
+    openDeployWeaponModal(wpn.id)
+    return
+  }
   // 视距适配武器射程，保证三维立体通道与地面打击圈完全展现
   const rangeM = Math.max(550000, wpn.strikeRange.maxDistanceKm * 1100)
   flyToAssetLocation(wpn.position.longitude, wpn.position.latitude, rangeM, 1.8)
-  showToast(`视点已锁定武器阵地：${wpn.name}`)
+  showToast(`视点已锁定武器阵地：${wpn.name} (${wpn.locationName})`)
 }
 
 /**
@@ -409,7 +415,7 @@ function handleOpenCreateModal(): void {
         class="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded flex items-center gap-1 text-xs font-bold shadow-[0_0_10px_rgba(6,182,212,0.3)] transition-all shrink-0"
       >
         <Plus class="w-3.5 h-3.5" />
-        <span v-if="activeAssetTab === 'WEAPONS'">部署武器</span>
+        <span v-if="activeAssetTab === 'WEAPONS'">添加武器</span>
         <span v-else-if="activeAssetTab === 'GROUND_STATIONS'">录入地面站</span>
         <span v-else-if="activeAssetTab === 'DATA_CENTERS'">录入数据中心</span>
         <span v-else>组建链路</span>
@@ -438,7 +444,9 @@ function handleOpenCreateModal(): void {
                 <span>•</span>
                 <span class="text-cyan-400">{{ getWeaponTypeLabel(wpn.type) }}</span>
                 <span>•</span>
-                <span class="text-slate-300">{{ wpn.locationName }}</span>
+                <span :class="wpn.isDeployed ? 'text-slate-300' : 'text-amber-400 font-bold'">
+                  {{ wpn.isDeployed ? wpn.locationName : '待部署阵地' }}
+                </span>
               </div>
             </div>
 
@@ -496,13 +504,28 @@ function handleOpenCreateModal(): void {
             <div class="flex-1 min-w-0 truncate mr-2" :title="wpn.description">
               {{ wpn.description }}
             </div>
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="flex items-center gap-1.5 shrink-0">
               <button
+                v-if="wpn.isDeployed"
                 @click.stop="handleFlyToWeapon(wpn)"
                 class="px-2 py-0.5 bg-cyan-900/40 hover:bg-cyan-800/60 border border-cyan-600/40 rounded text-cyan-300 text-[10px] flex items-center gap-1 transition-all"
+                title="定位至阵地"
               >
                 <MapPin class="w-3 h-3" />
                 <span>定位</span>
+              </button>
+              <button
+                @click.stop="openDeployWeaponModal(wpn.id)"
+                :class="[
+                  'px-2 py-0.5 rounded text-[10px] flex items-center gap-1 transition-all font-bold',
+                  wpn.isDeployed
+                    ? 'bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300'
+                    : 'bg-cyan-600 hover:bg-cyan-500 border border-cyan-400 text-white shadow-glow-cyan'
+                ]"
+                :title="wpn.isDeployed ? '重新放置调整阵地' : '将武器放置部署到指定经纬度区域'"
+              >
+                <Crosshair class="w-3 h-3" />
+                <span>{{ wpn.isDeployed ? '调整阵地' : '部署阵地' }}</span>
               </button>
               <button
                 @click.stop="deleteWeapon(wpn.id)"
@@ -516,7 +539,7 @@ function handleOpenCreateModal(): void {
         </div>
 
         <div v-if="filteredWeapons.length === 0" class="text-center py-8 text-slate-500 text-xs">
-          无匹配的武器装备，点击上方按钮部署新武器
+          无匹配的武器装备，点击上方【+ 添加武器】录入基本参数
         </div>
       </template>
 

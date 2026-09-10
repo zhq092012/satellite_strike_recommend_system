@@ -11,7 +11,6 @@ import {
   Minimize2,
   Shield,
   Activity,
-  AlertTriangle,
   RotateCcw,
   Target,
   Crosshair,
@@ -24,6 +23,7 @@ import { useBattlefieldState } from '../../composables/useBattlefieldState'
 import { useTacticalAssetsState } from '../../composables/useTacticalAssetsState'
 import { useRightPanelState } from '../../composables/useRightPanelState'
 import { useCombatPlanState } from '../../composables/useCombatPlanState'
+import { cancelMapPointPickMode } from '../../services/cesiumManager'
 
 /**
  * 引入作战计划决策向导控制
@@ -34,11 +34,7 @@ const { openCombatPlanModal } = useCombatPlanState()
  * 引入态势状态数据与控制操作
  */
 const {
-  satellites,
-  unreadAlertsCount,
-  defconLevel,
   clockState,
-  setDefconLevel,
   resetSimulationTime
 } = useSatelliteState()
 
@@ -61,10 +57,18 @@ const {
 const {
   weapons,
   dataLinks,
-  isCreateWeaponModalOpen,
+  openDeployWeaponModal,
   isPickingLocationOnMap,
   cancelMapLocationPick
 } = useTacticalAssetsState()
+
+/**
+ * 取消地图坐标点选并恢复视景与弹窗
+ */
+function handleCancelMapLocationPick(): void {
+  cancelMapPointPickMode()
+  cancelMapLocationPick()
+}
 
 /**
  * 引入右侧面板互斥调度中心
@@ -109,12 +113,6 @@ const bjtTimeString = computed<string>(() => {
   return `${bjt.toISOString().slice(0, 10)} ${bjt.toISOString().slice(11, 19)} BJT`
 })
 
-/**
- * 正常在轨运行卫星总数
- */
-const activeSatellitesCount = computed<number>(() => {
-  return satellites.value.filter((s) => s.status === 'NORMAL' || s.status === 'ACTIVE').length
-})
 
 /**
  * 切换浏览器全屏显示模式
@@ -186,94 +184,58 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="absolute top-0 left-0 right-0 h-14 bg-[#0c1322]/95 border-b border-tactical-border/80 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-40 select-none shadow-tactical-panel">
+  <header
+    class="absolute top-0 left-0 right-0 h-14 bg-[#0c1322]/95 border-b border-tactical-border/80 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between z-40 select-none shadow-tactical-panel">
     <!-- 地图交互绘制进行中的高亮顶栏通告条 -->
-    <div
-      v-if="isDrawingMode"
-      class="absolute inset-x-0 top-full bg-tactical-cyan/25 border-b border-tactical-cyan text-tactical-cyan px-4 py-1.5 flex items-center justify-between text-xs font-mono backdrop-blur shadow-glow-cyan z-30"
-    >
+    <div v-if="isDrawingMode"
+      class="absolute inset-x-0 top-full bg-tactical-cyan/25 border-b border-tactical-cyan text-tactical-cyan px-4 py-1.5 flex items-center justify-between text-xs font-mono backdrop-blur shadow-glow-cyan z-30">
       <div class="flex items-center gap-2">
         <Crosshair class="w-4 h-4 animate-spin-slow" />
         <span class="font-bold">三维地图交互拉取作战半径模式中:</span>
         <span class="text-white">第1次点击确认中心点，移动鼠标拖动半径，第2次点击确认完成</span>
       </div>
-      <button
-        @click="cancelInteractiveMapDrawing"
-        class="px-2 py-0.5 rounded bg-tactical-red/30 border border-tactical-red text-tactical-red hover:bg-tactical-red hover:text-white transition-colors text-[10px]"
-      >
+      <button @click="cancelInteractiveMapDrawing"
+        class="px-2 py-0.5 rounded bg-tactical-red/30 border border-tactical-red text-tactical-red hover:bg-tactical-red hover:text-white transition-colors text-[10px]">
         取消绘制
       </button>
     </div>
 
     <!-- 地图单点坐标拾取进行中的高亮通告条 -->
-    <div
-      v-if="isPickingLocationOnMap"
-      class="absolute inset-x-0 top-full bg-cyan-950/95 border-b border-cyan-400 text-cyan-300 px-4 py-1.5 flex items-center justify-between text-xs font-mono backdrop-blur shadow-[0_4px_20px_rgba(6,182,212,0.4)] z-30"
-    >
+    <div v-if="isPickingLocationOnMap"
+      class="absolute inset-x-0 top-full bg-cyan-950/95 border-b border-cyan-400 text-cyan-300 px-4 py-1.5 flex items-center justify-between text-xs font-mono backdrop-blur shadow-[0_4px_20px_rgba(6,182,212,0.4)] z-30">
       <div class="flex items-center gap-2">
         <Crosshair class="w-4 h-4 text-cyan-400 animate-bounce" />
         <span class="font-bold">三维地球阵地/设施坐标拾取中:</span>
         <span class="text-white">请在三维地球任意目标位置单机左键，系统将捕获地理坐标并自动填入</span>
       </div>
-      <button
-        @click="cancelMapLocationPick"
-        class="px-2 py-0.5 rounded bg-red-900/40 border border-red-500 text-red-300 hover:bg-red-800 transition-colors text-[10px]"
-      >
+      <button @click="handleCancelMapLocationPick"
+        class="px-2 py-0.5 rounded bg-red-900/40 border border-red-500 text-red-300 hover:bg-red-800 transition-colors text-[10px]">
         取消拾取
       </button>
     </div>
 
-    <!-- 左侧系统代号与主标题 -->
-    <div class="flex items-center gap-3">
-      <div class="relative flex items-center justify-center w-8 h-8 rounded bg-tactical-cyan/10 border border-tactical-cyan/50 text-tactical-cyan shrink-0">
+    <!-- 左侧系统代号与主标题 (保持右侧安全边距并避免折行) -->
+    <div class="flex items-center gap-3 shrink-0 mr-4 sm:mr-6 lg:mr-8 pr-4 sm:pr-6 border-r border-tactical-border/60">
+      <div
+        class="relative flex items-center justify-center w-8 h-8 rounded bg-tactical-cyan/10 border border-tactical-cyan/50 text-tactical-cyan shrink-0">
         <Radio class="w-4 h-4 animate-pulse" />
         <div class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-tactical-cyan shadow-glow-cyan"></div>
       </div>
-      <div>
-        <div class="flex items-center gap-2">
-          <h1 class="font-mono text-sm sm:text-base font-black tracking-wider text-tactical-text">
-            空间态势感知与反卫作战系统
-          </h1>
-          <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-tactical-cyan/20 border border-tactical-cyan/60 text-tactical-cyan hidden md:inline">
-            战术版
-          </span>
-        </div>
-        <p class="font-mono text-[9px] text-tactical-muted tracking-widest hidden sm:block">
-          天基攻防对抗与空间作战智能推荐指挥平台
-        </p>
+      <div class="shrink-0">
+        <h1 class="font-mono text-sm sm:text-base font-black tracking-wider text-tactical-text whitespace-nowrap">
+          卫星态势分析系统
+        </h1>
       </div>
     </div>
 
     <!-- 中间核心区：直接添加任务、战场、武器与抽屉入口快捷动作按钮组 (高度突出醒目) -->
     <div class="flex items-center gap-2">
-      <!-- 🟡 核心首要按钮：【作战计划】向导 (极显眼琥珀金+电光青) -->
-      <button
-        @click="openCombatPlanModal"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded font-mono text-xs font-black bg-gradient-to-r from-amber-500/25 to-yellow-500/20 hover:from-amber-500/40 hover:to-yellow-500/35 border border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)] transition-all hover:scale-105 active:scale-95 cursor-pointer"
-        title="启动反卫打击作战计划推演决策向导 (包含威胁度、链路时延、覆盖率、可打击度、甘特图与方案生成)"
-      >
-        <Zap class="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-        <span>作战计划</span>
-        <span class="px-1 py-0.2 rounded text-[9px] bg-amber-500/30 text-amber-200 border border-amber-400/40 hidden sm:inline">
-          向导
-        </span>
-      </button>
 
-      <!-- 🔴 核心显眼按钮：【+ 添加任务】 -->
-      <button
-        @click="handleOpenCreateMission"
-        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-cyan/20 hover:bg-tactical-cyan/35 border border-tactical-cyan text-tactical-cyan shadow-glow-cyan transition-all hover:scale-105 active:scale-95"
-        title="点击直接创建新的卫星打击作战任务"
-      >
-        <Plus class="w-3.5 h-3.5" />
-        <Target class="w-3.5 h-3.5" />
-        <span>添加任务</span>
-      </button>
 
-      <!-- 🔵 核心显眼按钮：【+ 添加战场】 -->
+      <!-- 🔵 核心按钮：【+ 添加战场】 -->
       <button
         @click="handleOpenCreateBattlefield"
-        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-dark hover:bg-slate-800 border border-tactical-border hover:border-tactical-cyan text-tactical-text hover:text-tactical-cyan transition-all hover:scale-105 active:scale-95"
+        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-dark/90 hover:bg-slate-800 border border-tactical-border/80 hover:border-tactical-cyan text-tactical-text hover:text-tactical-cyan transition-all hover:scale-105 active:scale-95"
         title="点击直接创建或导入新的战区空域"
       >
         <Plus class="w-3.5 h-3.5" />
@@ -281,15 +243,39 @@ onUnmounted(() => {
         <span>添加战场</span>
       </button>
 
-      <!-- 🟢 核心显眼按钮：【+ 部署武器】 -->
+      <!-- 🔴 核心按钮：【+ 添加任务】 -->
       <button
-        @click="isCreateWeaponModalOpen = true"
-        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-dark hover:bg-slate-800 border border-tactical-border hover:border-cyan-400 text-tactical-text hover:text-cyan-300 transition-all hover:scale-105 active:scale-95"
-        title="点击配置并部署新的反卫武器装备系统"
+        @click="handleOpenCreateMission"
+        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-dark/90 hover:bg-slate-800 border border-tactical-border/80 hover:border-tactical-cyan text-tactical-text hover:text-tactical-cyan transition-all hover:scale-105 active:scale-95"
+        title="点击直接创建新的卫星打击作战任务"
+      >
+        <Plus class="w-3.5 h-3.5" />
+        <Target class="w-3.5 h-3.5" />
+        <span>添加任务</span>
+      </button>
+
+      <!-- 🟢 核心按钮：【+ 部署武器】 (将武器放置到对应经纬度区域) -->
+      <button
+        @click="openDeployWeaponModal()"
+        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-dark/90 hover:bg-slate-800 border border-tactical-border/80 hover:border-tactical-cyan text-tactical-text hover:text-tactical-cyan transition-all hover:scale-105 active:scale-95"
+        title="点击将反卫武器装备放置部署到指定战区经纬度区域"
       >
         <Plus class="w-3.5 h-3.5" />
         <Crosshair class="w-3.5 h-3.5" />
         <span class="hidden sm:inline">部署武器</span>
+      </button>
+
+      <!-- 🟡 核心按钮：【作战计划】向导 -->
+      <button
+        @click="openCombatPlanModal"
+        class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded font-mono text-xs font-bold bg-tactical-dark/90 hover:bg-slate-800 border border-tactical-border/80 hover:border-tactical-cyan text-tactical-text hover:text-tactical-cyan transition-all hover:scale-105 active:scale-95 cursor-pointer"
+        title="启动反卫打击作战计划推演决策向导 (包含威胁度、链路时延、覆盖率、可打击度、甘特图与方案生成)"
+      >
+        <Zap class="w-3.5 h-3.5 text-amber-400" />
+        <span>作战计划</span>
+        <span class="px-1 py-0.2 rounded text-[9px] bg-slate-800 text-tactical-muted border border-tactical-border/80 hidden sm:inline">
+          向导
+        </span>
       </button>
 
       <!-- 1. 目标遥测面板入口 (独占切换) -->
@@ -299,7 +285,7 @@ onUnmounted(() => {
           'hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded font-mono text-xs font-bold transition-all border',
           isTelemetryActive
             ? 'bg-tactical-cyan/20 border-tactical-cyan text-tactical-cyan shadow-glow-cyan'
-            : 'bg-tactical-dark/90 border-tactical-border/80 text-tactical-muted hover:border-tactical-cyan hover:text-tactical-text'
+            : 'bg-tactical-dark/90 border-tactical-border/80 text-tactical-text hover:border-tactical-cyan hover:text-tactical-cyan hover:bg-slate-800'
         ]"
         title="独占展开/收起卫星目标精密遥测与开普勒六根数面板"
       >
@@ -314,13 +300,13 @@ onUnmounted(() => {
           'hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded font-mono text-xs font-bold transition-all border',
           isBattlefieldActive
             ? 'bg-tactical-cyan/20 border-tactical-cyan text-tactical-cyan shadow-glow-cyan'
-            : 'bg-tactical-dark/90 border-tactical-border/80 text-tactical-muted hover:border-tactical-cyan hover:text-tactical-text'
+            : 'bg-tactical-dark/90 border-tactical-border/80 text-tactical-text hover:border-tactical-cyan hover:text-tactical-cyan hover:bg-slate-800'
         ]"
         title="独占展开/收起战场与任务列表管理抽屉"
       >
         <Layers class="w-3.5 h-3.5" />
         <span>战场任务</span>
-        <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-tactical-cyan/30 text-tactical-cyan font-mono">
+        <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-slate-800 text-tactical-cyan font-mono border border-tactical-border/60">
           {{ missions.length }} / {{ battlefields.length }}
         </span>
       </button>
@@ -331,105 +317,46 @@ onUnmounted(() => {
         :class="[
           'hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded font-mono text-xs font-bold transition-all border',
           isTacticalAssetsActive
-            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
-            : 'bg-tactical-dark/90 border-tactical-border/80 text-tactical-muted hover:border-cyan-400 hover:text-tactical-text'
+            ? 'bg-tactical-cyan/20 border-tactical-cyan text-tactical-cyan shadow-glow-cyan'
+            : 'bg-tactical-dark/90 border-tactical-border/80 text-tactical-text hover:border-tactical-cyan hover:text-tactical-cyan hover:bg-slate-800'
         ]"
         title="独占展开/收起武器系统、地面站、数据中心与空间链路管理抽屉"
       >
         <Crosshair class="w-3.5 h-3.5" />
         <span>武器与链路</span>
-        <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-cyan-900/50 text-cyan-300 font-mono">
+        <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-slate-800 text-tactical-cyan font-mono border border-tactical-border/60">
           {{ weapons.length }}装备 / {{ dataLinks.length }}链路
         </span>
       </button>
     </div>
 
-    <!-- 右侧：军用时标、战备等级与系统状态 -->
-    <div class="flex items-center gap-3">
-      <!-- 战术时标面板 (在中大屏幕显示) -->
-      <div class="hidden xl:flex items-center gap-3 px-3 py-1 rounded bg-tactical-dark/90 border border-tactical-border/70 font-mono text-xs">
+    <!-- 右侧：军用时标与快捷工具 -->
+    <div class="flex items-center gap-3 shrink-0">
+      <!-- 战术时标面板 (在宽屏显示) -->
+      <div
+        class="hidden md:flex items-center gap-3 px-3 py-1 rounded bg-tactical-dark/90 border border-tactical-border/70 font-mono text-xs">
         <div class="flex items-center gap-1.5">
           <span class="text-tactical-muted text-[10px]">UTC/Z:</span>
-          <span class="text-tactical-cyan font-bold tracking-wider">{{ utcTimeString }}</span>
+          <span class="text-tactical-cyan font-bold tracking-wider whitespace-nowrap">{{ utcTimeString }}</span>
         </div>
         <div class="w-[1px] h-3.5 bg-tactical-border"></div>
         <div class="flex items-center gap-1.5">
           <span class="text-tactical-muted text-[10px]">BJT:</span>
-          <span class="text-tactical-text font-bold tracking-wider">{{ bjtTimeString }}</span>
-        </div>
-      </div>
-
-      <!-- 战备警戒等级 (DEFCON) 切换器 -->
-      <div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded bg-tactical-dark/90 border border-tactical-border/70 font-mono text-xs">
-        <Shield class="w-3.5 h-3.5 text-tactical-amber" />
-        <span class="text-tactical-muted text-[10px]">DEFCON:</span>
-        <div class="flex gap-1">
-          <button
-            v-for="lvl in [5, 4, 3, 2, 1]"
-            :key="lvl"
-            @click="setDefconLevel(lvl)"
-            :class="[
-              'w-5 h-5 rounded text-[10px] font-bold transition-all',
-              defconLevel === lvl
-                ? lvl === 1
-                  ? 'bg-tactical-red text-white shadow-glow-red'
-                  : lvl === 2
-                  ? 'bg-tactical-amber text-black'
-                  : 'bg-tactical-cyan text-black shadow-glow-cyan'
-                : 'bg-slate-800 text-tactical-muted hover:text-white'
-            ]"
-          >
-            {{ lvl }}
-          </button>
-        </div>
-      </div>
-
-      <!-- 在轨统计数据看板 -->
-      <div class="hidden md:flex items-center gap-2 font-mono text-xs">
-        <div class="flex items-center gap-1.5 text-tactical-muted">
-          <Activity class="w-3.5 h-3.5 text-tactical-green" />
-          <span>在轨:</span>
-          <span class="text-tactical-green font-bold">{{ activeSatellitesCount }}/{{ satellites.length }}</span>
-        </div>
-
-        <!-- 警报指示徽章 -->
-        <div class="flex items-center gap-1.5">
-          <AlertTriangle
-            :class="[
-              'w-3.5 h-3.5',
-              unreadAlertsCount > 0 ? 'text-tactical-red animate-bounce' : 'text-tactical-muted'
-            ]"
-          />
-          <span
-            :class="[
-              'px-1.5 py-0.5 rounded text-[10px] font-bold',
-              unreadAlertsCount > 0
-                ? 'bg-tactical-red/20 border border-tactical-red text-tactical-red'
-                : 'bg-slate-800 text-tactical-muted'
-            ]"
-          >
-            {{ unreadAlertsCount }}
-          </span>
+          <span class="text-tactical-text font-bold tracking-wider whitespace-nowrap">{{ bjtTimeString }}</span>
         </div>
       </div>
 
       <!-- 快捷工具按钮组 -->
       <div class="flex items-center gap-1 border-l border-tactical-border/80 pl-2">
         <!-- 重置推演时间 -->
-        <button
-          @click="resetSimulationTime"
-          title="重置推演至当前系统时间"
-          class="p-1.5 rounded hover:bg-tactical-dark border border-transparent hover:border-tactical-border text-tactical-muted hover:text-tactical-cyan transition-colors"
-        >
+        <button @click="resetSimulationTime" title="重置推演至当前系统时间"
+          class="p-1.5 rounded hover:bg-tactical-dark border border-transparent hover:border-tactical-border text-tactical-muted hover:text-tactical-cyan transition-colors">
           <RotateCcw class="w-4 h-4" />
         </button>
 
         <!-- 全屏开关 -->
-        <button
-          @click="toggleFullscreen"
-          :title="isFullscreen ? '退出全屏' : '全屏显示'"
-          class="p-1.5 rounded hover:bg-tactical-dark border border-transparent hover:border-tactical-border text-tactical-muted hover:text-tactical-cyan transition-colors"
-        >
+        <button @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏显示'"
+          class="p-1.5 rounded hover:bg-tactical-dark border border-transparent hover:border-tactical-border text-tactical-muted hover:text-tactical-cyan transition-colors">
           <Minimize2 v-if="isFullscreen" class="w-4 h-4" />
           <Maximize2 v-else class="w-4 h-4" />
         </button>

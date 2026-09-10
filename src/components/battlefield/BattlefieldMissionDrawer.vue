@@ -198,25 +198,7 @@ function getRedLineDisplay(redLine: PoliticalRedLine): { label: string; cls: str
           </button>
         </div>
 
-        <!-- 快捷新建操作按钮栏 -->
-        <div class="grid grid-cols-2 gap-2 mt-0.5">
-          <button
-            @click="isCreateMissionModalOpen = true"
-            class="py-1.5 px-2 rounded bg-tactical-cyan/20 hover:bg-tactical-cyan/35 border border-tactical-cyan text-tactical-cyan font-bold text-xs flex items-center justify-center gap-1.5 shadow-glow-cyan transition-all"
-            title="点击创建作战任务"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            <span>+ 新建作战任务</span>
-          </button>
-          <button
-            @click="isCreateBattlefieldModalOpen = true"
-            class="py-1.5 px-2 rounded bg-tactical-dark hover:bg-slate-800 border border-tactical-border hover:border-tactical-cyan text-tactical-text hover:text-tactical-cyan font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-            title="点击创建或导入战区空域"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            <span>+ 新建战区空域</span>
-          </button>
-        </div>
+       
 
         <!-- 搜索与快捷工具栏 -->
         <div class="flex items-center gap-2">

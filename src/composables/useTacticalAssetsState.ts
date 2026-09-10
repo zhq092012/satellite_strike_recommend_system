@@ -53,6 +53,7 @@ const DEFAULT_WEAPONS: WeaponSystem[] = [
       altitudeM: 80
     },
     locationName: '胶东半岛某综合反卫阵地',
+    isDeployed: true,
     status: WeaponStatus.READY,
     description: '采用高能固体火箭助推及红外成像动能拦截器 (KKV)，具备对近地轨道 (LEO) 高分光学与雷达侦察卫星的直接撞击动能摧毁能力。',
     createdAt: new Date().toISOString()
@@ -83,6 +84,7 @@ const DEFAULT_WEAPONS: WeaponSystem[] = [
       altitudeM: 3200
     },
     locationName: '青海高原某高能光电对抗基地',
+    isDeployed: true,
     status: WeaponStatus.READY,
     description: '部署于高原稀薄大气层，配备自适应光学相差补偿系统，可实施连续兆瓦级激光照射，对敌光学侦察卫星焦平面探测器造成不可逆硬烧蚀。',
     createdAt: new Date(Date.now() - 3600000).toISOString()
@@ -114,6 +116,7 @@ const DEFAULT_WEAPONS: WeaponSystem[] = [
       altitudeM: 45
     },
     locationName: '华南沿海某车载电子对抗梯队',
+    isDeployed: true,
     status: WeaponStatus.ENGAGING,
     description: '可对星链 (Starlink) 下行通信载波及 GPS 导航信号实施高增益同频阻断压制与虚假欺骗导航注入。',
     createdAt: new Date(Date.now() - 7200000).toISOString()
@@ -405,9 +408,19 @@ const isAssetDrawerOpen = computed<boolean>({
 })
 
 /**
- * 新建武器模态框显隐状态
+ * 新建/添加武器模态框显隐状态 (配置基本参数)
  */
 const isCreateWeaponModalOpen = ref<boolean>(false)
+
+/**
+ * 部署武器模态框显隐状态 (放置到对应经纬度区域)
+ */
+const isDeployWeaponModalOpen = ref<boolean>(false)
+
+/**
+ * 预选待部署的目标武器 ID
+ */
+const deployTargetWeaponId = ref<string | null>(null)
 
 /**
  * 新建地面站模态框显隐状态
@@ -490,9 +503,9 @@ export function useTacticalAssetsState() {
   })
 
   /**
-   * 添加并持久化新武器装备
+   * 添加并持久化新武器装备基本参数 (添加武器不指定具体阵地经纬度)
    *
-   * @param data - 武器初始化参数
+   * @param data - 武器基本参数
    * @returns 新增的武器实体
    */
   function createWeapon(data: Omit<WeaponSystem, 'id' | 'createdAt'>): WeaponSystem {
@@ -500,11 +513,63 @@ export function useTacticalAssetsState() {
     const newWpn: WeaponSystem = {
       ...data,
       id: newId,
+      isDeployed: data.isDeployed ?? false,
+      locationName: data.locationName || '待部署阵地',
+      status: data.status || WeaponStatus.READY,
       createdAt: new Date().toISOString()
     }
     weapons.value.unshift(newWpn)
     selectedWeaponId.value = newWpn.id
     return newWpn
+  }
+
+  /**
+   * 打开部署武器模态框
+   * @param weaponId - 可选预选的武器型号 ID
+   */
+  function openDeployWeaponModal(weaponId?: string): void {
+    if (weaponId) {
+      deployTargetWeaponId.value = weaponId
+    } else {
+      // 优先预选未部署的武器，否则选第一项
+      const undeployed = weapons.value.find((w) => !w.isDeployed)
+      deployTargetWeaponId.value = undeployed ? undeployed.id : (weapons.value[0]?.id || null)
+    }
+    isDeployWeaponModalOpen.value = true
+  }
+
+  /**
+   * 执行将武器放置部署到指定经纬度区域
+   * @param weaponId - 武器装备 ID
+   * @param deployment - 部署阵地信息与经纬度
+   */
+  function deployWeapon(
+    weaponId: string,
+    deployment: {
+      locationName: string
+      longitude: number
+      latitude: number
+      altitudeM?: number
+      quantity?: number
+    }
+  ): WeaponSystem | null {
+    const wpn = weapons.value.find((w) => w.id === weaponId)
+    if (!wpn) return null
+
+    wpn.position = {
+      longitude: deployment.longitude,
+      latitude: deployment.latitude,
+      altitudeM: deployment.altitudeM || 50
+    }
+    wpn.locationName = deployment.locationName || `部署阵地 (${deployment.longitude.toFixed(2)}°, ${deployment.latitude.toFixed(2)}°)`
+    wpn.isDeployed = true
+    if (deployment.quantity !== undefined && deployment.quantity > 0) {
+      wpn.quantity = deployment.quantity
+    }
+    wpn.status = WeaponStatus.READY
+    selectedWeaponId.value = wpn.id
+    isDeployWeaponModalOpen.value = false
+    return wpn
   }
 
   /**
@@ -660,12 +725,21 @@ export function useTacticalAssetsState() {
   }
 
   /**
-   * 取消地图点选拾取
+   * 取消地图点选拾取并恢复原弹窗
    */
   function cancelMapLocationPick(): void {
+    const target = pickingTarget.value
     isPickingLocationOnMap.value = false
     pickingTarget.value = null
     onLocationPickedCallback = null
+
+    if (target === 'WEAPON') {
+      isDeployWeaponModalOpen.value = true
+    } else if (target === 'GROUND_STATION') {
+      isCreateGroundStationModalOpen.value = true
+    } else if (target === 'DATA_CENTER') {
+      isCreateDataCenterModalOpen.value = true
+    }
   }
 
   return {
@@ -683,6 +757,10 @@ export function useTacticalAssetsState() {
     selectedDataLink,
     isAssetDrawerOpen,
     isCreateWeaponModalOpen,
+    isDeployWeaponModalOpen,
+    deployTargetWeaponId,
+    openDeployWeaponModal,
+    deployWeapon,
     isCreateGroundStationModalOpen,
     isCreateDataCenterModalOpen,
     isCreateDataLinkModalOpen,

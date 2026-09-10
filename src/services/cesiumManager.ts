@@ -499,15 +499,40 @@ export function initCesiumViewer(
 
     // 地图单点点选拾取坐标模式
     if (isPointPickingActive && pointPickCallback) {
+      let cartesian: Cesium.Cartesian3 | undefined = undefined
+
+      // 1. 优先使用光线求交与地球表面求交 (标准且绝对准确)
       const ray = viewer.camera.getPickRay(click.position)
-      if (!ray) return
-      const cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+      if (ray) {
+        cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+      }
+
+      // 2. 稳妥托底：从椭球体直接解算 (100% 保证在任意平坦地表、海洋及无地形视景下皆可精确拾取)
+      if (!cartesian) {
+        cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid)
+      }
+
       if (!cartesian) return
 
-      const carto = Cesium.Cartographic.fromCartesian(cartesian)
-      const lon = parseFloat(Cesium.Math.toDegrees(carto.longitude).toFixed(4))
-      const lat = parseFloat(Cesium.Math.toDegrees(carto.latitude).toFixed(4))
-      const alt = parseFloat(carto.height.toFixed(1))
+      let carto: Cesium.Cartographic | undefined = undefined
+      try {
+        carto = Cesium.Cartographic.fromCartesian(cartesian)
+      } catch {
+        // 忽略异常
+      }
+
+      if (!carto) return
+
+      const degLon = Cesium.Math.toDegrees(carto.longitude)
+      const degLat = Cesium.Math.toDegrees(carto.latitude)
+
+      if (isNaN(degLon) || isNaN(degLat) || !isFinite(degLon) || !isFinite(degLat)) {
+        return
+      }
+
+      const lon = parseFloat(degLon.toFixed(4))
+      const lat = parseFloat(degLat.toFixed(4))
+      const alt = parseFloat(Math.max(0, carto.height || 0).toFixed(1))
 
       isPointPickingActive = false
       const cb = pointPickCallback
@@ -518,9 +543,14 @@ export function initCesiumViewer(
 
     // 交互绘制模式拦截处理
     if (isDrawingActive) {
+      let cartesian: Cesium.Cartesian3 | undefined = undefined
       const ray = viewer.camera.getPickRay(click.position)
-      if (!ray) return
-      const cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+      if (ray) {
+        cartesian = viewer.scene.globe.pick(ray, viewer.scene)
+      }
+      if (!cartesian) {
+        cartesian = viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid)
+      }
       if (!cartesian) return
 
       if (!drawingCenterCartesian) {
@@ -724,6 +754,21 @@ export function renderWeapons(weapons: WeaponSystem[], selectedId?: string | nul
   }
 
   weapons.forEach((wpn) => {
+    // 仅在武器已放置部署至地理经纬度阵地时在地球上绘制实体与射程包络
+    if (!wpn.isDeployed || !wpn.position) {
+      const existing = weaponEntities.get(wpn.id)
+      if (existing) {
+        viewer!.entities.remove(existing)
+        weaponEntities.delete(wpn.id)
+      }
+      const existingRange = weaponRangeEntities.get(wpn.id)
+      if (existingRange) {
+        viewer!.entities.remove(existingRange)
+        weaponRangeEntities.delete(wpn.id)
+      }
+      return
+    }
+
     const isSelected = wpn.id === selectedId
     const pos = Cesium.Cartesian3.fromDegrees(
       wpn.position.longitude,

@@ -16,6 +16,7 @@ import CreateBattlefieldDialog from './components/battlefield/CreateBattlefieldD
 import CreateMissionDialog from './components/battlefield/CreateMissionDialog.vue'
 import TacticalAssetsDrawer from './components/assets/TacticalAssetsDrawer.vue'
 import CreateWeaponDialog from './components/assets/CreateWeaponDialog.vue'
+import DeployWeaponDialog from './components/assets/DeployWeaponDialog.vue'
 import CreateGroundStationDialog from './components/assets/CreateGroundStationDialog.vue'
 import CreateDataCenterDialog from './components/assets/CreateDataCenterDialog.vue'
 import CreateDataLinkDialog from './components/assets/CreateDataLinkDialog.vue'
@@ -63,10 +64,13 @@ import CombatPlanningModal from './components/planning/CombatPlanningModal.vue'
     <!-- 12. 右侧面板收起状态下的战术快捷停靠栏 (仅在所有面板收起时显示，单次独占呼出) -->
     <RightPanelQuickDock />
 
-    <!-- 12. 动态部署武器装备模态对话框 -->
+    <!-- 12. 动态添加武器装备基本参数模态对话框 (右侧面板呼出) -->
     <CreateWeaponDialog />
 
-    <!-- 13. 动态录入地面测控站模态对话框 -->
+    <!-- 13. 动态部署武器装备到阵地区域模态对话框 (顶部面板呼出) -->
+    <DeployWeaponDialog />
+
+    <!-- 14. 动态录入地面测控站模态对话框 -->
     <CreateGroundStationDialog />
 
     <!-- 14. 动态录入情报数据中心模态对话框 -->

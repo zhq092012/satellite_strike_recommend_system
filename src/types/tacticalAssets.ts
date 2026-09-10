@@ -111,8 +111,10 @@ export interface WeaponSystem {
   cooldownSec: number
   /** 当前部署可用发射单元数 / 弹药基数 */
   quantity: number
-  /** 装备阵地部署地理经纬度坐标 */
-  position: {
+  /** 是否已在地球阵地上完成部署 (false 表示仅添加基本参数，尚未放置到经纬度阵地) */
+  isDeployed?: boolean
+  /** 装备阵地部署地理经纬度坐标 (已部署时有效) */
+  position?: {
     /** 部署经度 (度) */
     longitude: number
     /** 部署纬度 (度) */
